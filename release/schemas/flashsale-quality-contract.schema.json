@@ -25,41 +25,24 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "perf",
-        "consistency"
+        "perf"
       ],
       "properties": {
         "perf": {
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "lanes"
+            "cadence"
           ],
           "properties": {
-            "lanes": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "smoke",
-                "idempotencyLite",
-                "hotspot10Tps"
-              ],
-              "properties": {
-                "smoke": {
-                  "$ref": "#/$defs/executableLane"
-                },
-                "idempotencyLite": {
-                  "$ref": "#/$defs/executableLane"
-                },
-                "hotspot10Tps": {
-                  "$ref": "#/$defs/executableLane"
-                }
+            "cadence": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/perfCadenceLane"
               }
             }
           }
-        },
-        "consistency": {
-          "$ref": "#/$defs/executableLane"
         }
       }
     }
@@ -69,16 +52,24 @@
       "type": "string",
       "minLength": 1
     },
-    "executableLane": {
+    "perfCadenceLane": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "id",
         "displayName",
         "invocation"
       ],
       "properties": {
+        "id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
         "displayName": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "pauseBeforeSeconds": {
+          "type": "integer",
+          "minimum": 0
         },
         "invocation": {
           "oneOf": [

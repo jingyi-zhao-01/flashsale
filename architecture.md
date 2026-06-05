@@ -29,7 +29,7 @@ These diagrams describe the flashsale system at the application and domain level
       </ul>
       <p>
         Source:
-        <a href="/home/jingyi/PycharmProjects/homelab-cloud/flashsale/docs/diagram/flashsale-c4-container.d2">flashsale-c4-container.d2</a>
+        <a href="/home/jingyi/PycharmProjects/homelab-cloud/application/flashsale/docs/diagram/flashsale-c4-container.d2">flashsale-c4-container.d2</a>
       </p>
     </td>
     <td width="33%" valign="top">
@@ -51,7 +51,7 @@ These diagrams describe the flashsale system at the application and domain level
       </ul>
       <p>
         Source:
-        <a href="/home/jingyi/PycharmProjects/homelab-cloud/flashsale/docs/diagram/flashsale-runtime-order-flow.d2">flashsale-runtime-order-flow.d2</a>
+        <a href="/home/jingyi/PycharmProjects/homelab-cloud/application/flashsale/docs/diagram/flashsale-runtime-order-flow.d2">flashsale-runtime-order-flow.d2</a>
       </p>
     </td>
     <td width="33%" valign="top">
@@ -72,7 +72,7 @@ These diagrams describe the flashsale system at the application and domain level
       </ul>
       <p>
         Source:
-        <a href="/home/jingyi/PycharmProjects/homelab-cloud/flashsale/docs/diagram/flashsale-state-machines.d2">flashsale-state-machines.d2</a>
+        <a href="/home/jingyi/PycharmProjects/homelab-cloud/application/flashsale/docs/diagram/flashsale-state-machines.d2">flashsale-state-machines.d2</a>
       </p>
     </td>
   </tr>

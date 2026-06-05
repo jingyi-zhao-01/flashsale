@@ -11,7 +11,10 @@ from typing import Any, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = Path(
-    os.environ.get("COMPOSE_FILE", str(REPO_ROOT / "flashsale" / "docker-compose.yaml"))
+    os.environ.get(
+        "COMPOSE_FILE",
+        str(REPO_ROOT / "application" / "flashsale" / "docker-compose.yaml"),
+    )
 )
 BASE_USER_URL = os.environ.get("BASE_USER_URL", "http://127.0.0.1:18001")
 BASE_PRODUCT_URL = os.environ.get("BASE_PRODUCT_URL", "http://127.0.0.1:18002")

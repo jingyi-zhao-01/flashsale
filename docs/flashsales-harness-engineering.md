@@ -2,13 +2,13 @@
 
 This record covers:
 
-- `flashsale/user-service`
-- `flashsale/product-service`
-- `flashsale/order-service`
+- `application/flashsale/user-service`
+- `application/flashsale/product-service`
+- `application/flashsale/order-service`
 - `charts/flashsales`
-- `flashsale/perf/k6/scenarios/concurrency-test.js`
-- `flashsale/perf/scripts/loadtest-k6.sh`
-- `flashsale/perf/docs/CONCURRENCY_TEST_PLAN.md`
+- `application/flashsale/perf/k6/scenarios/concurrency-test.js`
+- `application/flashsale/perf/scripts/loadtest-k6.sh`
+- `application/flashsale/perf/docs/CONCURRENCY_TEST_PLAN.md`
 
 ## Current Architecture Summary
 
@@ -18,7 +18,7 @@ This record covers:
 | `product-service` | Product read, reservation lifecycle, and stock management | Reservation state machine now owns `reserve/confirm/cancel/expire` |
 | `order-service` | User validation, reserve orchestration, and order persistence | Confirms or cancels reservations after persistence outcome |
 | `charts/flashsales` | Deployment source of truth | Ingress and HPA behavior directly affect perf conclusions |
-| `flashsale/perf/k6/scenarios/concurrency-test.js` | Main concurrency harness | Measures business outcomes and latency, but has correctness blind spots |
+| `application/flashsale/perf/k6/scenarios/concurrency-test.js` | Main concurrency harness | Measures business outcomes and latency, but has correctness blind spots |
 
 ## Confirmed Findings
 
@@ -33,7 +33,7 @@ Implication:
 
 Primary files:
 
-- `flashsale/perf/k6/scenarios/concurrency-test.js`
+- `application/flashsale/perf/k6/scenarios/concurrency-test.js`
 
 ## What The Harness Currently Proves
 
@@ -55,12 +55,12 @@ The runtime consistency harness exists because the perf harness alone is not eno
 
 Primary files:
 
-- `.github/workflows/flashsales-consistency.yml`
-- `flashsale/perf/python/consistency_harness.py`
+- `.github/workflows/flashsales-deploy-post.yml`
+- `application/flashsale/perf/python/consistency_harness.py`
 
 ### 3. The hotspot profile overstates post-sellout behavior
 
-The `hotspot` profile in `flashsale/perf/k6/scenarios/concurrency-test.js` uses one product with `initialStock=1` while driving `100 TPS` for three minutes.
+The `hotspot` profile in `application/flashsale/perf/k6/scenarios/concurrency-test.js` uses one product with `initialStock=1` while driving `100 TPS` for three minutes.
 
 Implication:
 
@@ -70,8 +70,8 @@ Implication:
 
 Primary files:
 
-- `flashsale/perf/k6/scenarios/concurrency-test.js`
-- `flashsale/perf/docs/CONCURRENCY_TEST_PLAN.md`
+- `application/flashsale/perf/k6/scenarios/concurrency-test.js`
+- `application/flashsale/perf/docs/CONCURRENCY_TEST_PLAN.md`
 
 ### 5. Order-service HPA is unlikely to scale meaningfully as configured
 
@@ -95,10 +95,14 @@ Implication:
 
 - deploy workflow: `.github/workflows/flashsales-deploy.yml`
 - post-deploy workflow: `.github/workflows/flashsales-deploy-post.yml`
-- reusable runtime consistency workflow: `.github/workflows/flashsales-consistency.yml`
-- reusable perf workflow: `.github/workflows/flashsales-perf-concurrency-suite.yml`
-- runtime script: `flashsale/perf/python/consistency_harness.py`
+- runtime script: `application/flashsale/perf/python/consistency_harness.py`
 - cluster component: optional `dbProxy` in `charts/flashsales`
+
+Perf cadence ownership is intentionally app-first:
+
+- `application/flashsale/release/flashsale-quality-contract.yaml` defines the ordered perf cadence
+- `.github/workflows/flashsales-deploy-post.yml` acts as the platform executor and unified post-deploy quality entrypoint
+- adding, removing, or reordering perf lanes should happen in the flashsale contract, not by hardcoding new workflow jobs in the platform repo
 
 The two gates have different roles:
 
@@ -110,7 +114,7 @@ The two gates have different roles:
 When changing flashsales correctness or perf semantics, verify at least:
 
 ```bash
-bash ./flashsale/scripts/e2e-smoke.sh
+bash ./application/flashsale/scripts/e2e-smoke.sh
 make concurrency-smoke
 make concurrency-hotspot-10tps
 make concurrency-baseline
@@ -120,7 +124,7 @@ make concurrency-hotspot
 For correctness-sensitive changes, also run:
 
 ```bash
-python3 ./flashsale/perf/python/consistency_harness.py
+python3 ./application/flashsale/perf/python/consistency_harness.py
 ```
 
 ## Related Pages

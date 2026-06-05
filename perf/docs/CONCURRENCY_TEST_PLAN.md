@@ -10,7 +10,7 @@ This plan uses only K6 and existing admin/test endpoints.
 
 ## Profiles Implemented
 
-All profiles run via `flashsale/perf/k6/scenarios/concurrency-test.js` and are exposed in Make targets.
+All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.js` and are exposed in Make targets.
 
 1. `concurrency-smoke`
 

@@ -1,6 +1,6 @@
 # Flashsales Workload
 
-Flashsales is the concurrency practice workload. It is composed of three FastAPI services in the `flashsale/` tree and a Helm chart in `charts/flashsales`.
+Flashsales is the concurrency practice workload. It is composed of three FastAPI services in the `application/flashsale/` tree and a Helm chart in `charts/flashsales`.
 
 ## Source Of Truth
 
@@ -62,18 +62,20 @@ This workload is deployed to the VPS-backed k3s cluster, not to a local-only env
 ## Verification
 
 ```bash
-bash ./flashsale/scripts/e2e-smoke.sh
+bash ./application/flashsale/scripts/e2e-smoke.sh
 ```
 
 The smoke test checks that the business services and supporting stateful components are running and reports success with `E2E PASS`.
 
 For correctness gates:
 
-- `flashsale/.github/workflows/flashsales-deploy-pre.yml` in the standalone app repo contains the pre-deploy unit gates
-- `flashsale/.github/workflows/flashsales-deploy-pre.yml` also contains the pre-deploy Docker Compose integration gate based on `docker-compose.yaml`
+- `application/flashsale/.github/workflows/flashsales-deploy-pre.yml` in the standalone app repo contains the pre-deploy unit gates
+- `application/flashsale/.github/workflows/flashsales-deploy-pre.yml` also contains the pre-deploy Docker Compose integration gate based on `docker-compose.yaml`
 - that app-owned pre-deploy workflow does not run Helm or modify the live k3s deployment
+- the same app-owned workflow is also the default manual deploy entrypoint: `workflow_dispatch` builds the images and, unless you turn it off, dispatches `homelab-cloud` to run deploy plus all remaining post-deploy gates
 - `homelab-cloud/.github/workflows/flashsales-deploy.yml` consumes the app release manifest and performs the default k3s deploy
-- `homelab-cloud/.github/workflows/flashsales-deploy-post.yml` runs after deploy, first calling the reusable runtime consistency harness in `homelab-cloud/.github/workflows/flashsales-consistency.yml`, then the reusable perf suite in `homelab-cloud/.github/workflows/flashsales-perf-concurrency-suite.yml`
+- `homelab-cloud/.github/workflows/flashsales-deploy-post.yml` is the single post-deploy quality workflow
+- that workflow executes the ordered perf cadence from `application/flashsale/release/flashsale-quality-contract.yaml`
 - the pre-deploy gate now covers lifecycle, out-of-stock, duplicate-order, duplicate-webhook, timeout-race, DB migration compatibility, and API contract compatibility
 
 The current inventory flow uses an explicit reservation lifecycle:
