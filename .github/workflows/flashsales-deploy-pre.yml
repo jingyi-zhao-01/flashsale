@@ -36,6 +36,28 @@ permissions:
   packages: write
 
 jobs:
+  quality-contract-schema-gate:
+    name: Schema Gate - Flashsale Quality Contract
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install schema validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml jsonschema
+
+      - name: Validate flashsale quality contract
+        run: |
+          python3 scripts/validate_quality_contract.py release/flashsale-quality-contract.yaml
+
   shared-unit-gate:
     name: Unit Gate - Shared Library Cache, Observability, And Pool
     runs-on: ubuntu-latest
@@ -62,6 +84,8 @@ jobs:
   product-service-unit-gate:
     name: Unit Gate - Product Service Lifecycle, Contract, And Migration
     runs-on: ubuntu-latest
+    needs:
+      - quality-contract-schema-gate
 
     steps:
       - name: Checkout
@@ -86,6 +110,8 @@ jobs:
   order-service-unit-gate:
     name: Unit Gate - Order Service Lifecycle, Webhooks, Contract, And Migration
     runs-on: ubuntu-latest
+    needs:
+      - quality-contract-schema-gate
 
     steps:
       - name: Checkout
@@ -110,6 +136,8 @@ jobs:
   user-service-unit-gate:
     name: Unit Gate - User Service CRUD, Contract, And Migration
     runs-on: ubuntu-latest
+    needs:
+      - quality-contract-schema-gate
 
     steps:
       - name: Checkout
@@ -209,6 +237,7 @@ jobs:
   build-and-push:
     name: Build and Push Images
     needs:
+      - quality-contract-schema-gate
       - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
@@ -219,6 +248,7 @@ jobs:
     if: >-
       ${{
         github.event_name != 'pull_request' &&
+        needs.quality-contract-schema-gate.result == 'success' &&
         needs.shared-unit-gate.result == 'success' &&
         needs.product-service-unit-gate.result == 'success' &&
         needs.order-service-unit-gate.result == 'success' &&
@@ -263,6 +293,7 @@ jobs:
   notify-discord:
     name: Notify Discord
     needs:
+      - quality-contract-schema-gate
       - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
@@ -294,6 +325,7 @@ jobs:
   dispatch-homelab-cloud:
     name: Dispatch Homelab Cloud Deploy
     needs:
+      - quality-contract-schema-gate
       - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
@@ -306,6 +338,7 @@ jobs:
       ${{
         github.event_name == 'push' &&
         github.ref == 'refs/heads/main' &&
+        needs.quality-contract-schema-gate.result == 'success' &&
         needs.shared-unit-gate.result == 'success' &&
         needs.product-service-unit-gate.result == 'success' &&
         needs.order-service-unit-gate.result == 'success' &&

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flashsale.dev/schemas/flashsale-quality-contract.schema.json",
+  "title": "Flashsale Quality Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "flashsale.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "FlashsaleQualityContract"
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "perf",
+        "consistency"
+      ],
+      "properties": {
+        "perf": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lanes"
+          ],
+          "properties": {
+            "lanes": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "smoke",
+                "idempotencyLite",
+                "hotspot10Tps"
+              ],
+              "properties": {
+                "smoke": {
+                  "$ref": "#/$defs/executableLane"
+                },
+                "idempotencyLite": {
+                  "$ref": "#/$defs/executableLane"
+                },
+                "hotspot10Tps": {
+                  "$ref": "#/$defs/executableLane"
+                }
+              }
+            }
+          }
+        },
+        "consistency": {
+          "$ref": "#/$defs/executableLane"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executableLane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayName",
+        "invocation"
+      ],
+      "properties": {
+        "displayName": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "invocation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/makeInvocation"
+            },
+            {
+              "$ref": "#/$defs/pythonInvocation"
+            }
+          ]
+        }
+      }
+    },
+    "makeInvocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "target"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "make"
+        },
+        "target": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "pythonInvocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "script"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "python"
+        },
+        "script": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    }
+  }
+}
