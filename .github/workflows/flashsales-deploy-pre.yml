@@ -1,0 +1,153 @@
+name: Flashsales Deploy Pre
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'shared/**'
+      - 'product-service/**'
+      - 'order-service/**'
+      - 'scripts/**'
+      - 'docker-compose.yaml'
+      - '.github/workflows/flashsales-deploy-pre.yml'
+      - '.github/scripts/notify-discord.sh'
+  pull_request:
+    paths:
+      - 'shared/**'
+      - 'product-service/**'
+      - 'order-service/**'
+      - 'scripts/**'
+      - 'docker-compose.yaml'
+      - '.github/workflows/flashsales-deploy-pre.yml'
+      - '.github/scripts/notify-discord.sh'
+
+concurrency:
+  group: flashsales-deploy-pre-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  product-service-unit-gate:
+    name: Unit Gate - Product Service Lifecycle, Contract, And Migration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install product-service dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ./shared
+          python -m pip install -r product-service/requirements.txt
+
+      - name: Run product-service unit tests
+        working-directory: product-service
+        run: |
+          python -m unittest discover -s tests/unit -t . -p 'test_*.py'
+
+  order-service-unit-gate:
+    name: Unit Gate - Order Service Lifecycle, Webhooks, Contract, And Migration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install order-service dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ./shared
+          python -m pip install -r order-service/requirements.txt
+
+      - name: Run order-service unit tests
+        working-directory: order-service
+        run: |
+          python -m unittest discover -s tests/unit -t . -p 'test_*.py'
+
+  product-service-compose-integration-gate:
+    name: Integration Gate - Docker Compose Product Service
+    runs-on: ubuntu-latest
+    needs:
+      - product-service-unit-gate
+      - order-service-unit-gate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure Docker Compose is available
+        run: docker compose version
+
+      - name: Run product-service compose integration
+        run: |
+          python3 scripts/flashsale_compose_integration.py --suite product
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yaml logs --no-color || true
+
+  order-service-compose-integration-gate:
+    name: Integration Gate - Docker Compose Order Service
+    runs-on: ubuntu-latest
+    needs:
+      - product-service-unit-gate
+      - order-service-unit-gate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure Docker Compose is available
+        run: docker compose version
+
+      - name: Run order-service compose integration
+        run: |
+          python3 scripts/flashsale_compose_integration.py --suite order
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yaml logs --no-color || true
+
+  notify-discord:
+    name: Notify Discord
+    needs:
+      - product-service-unit-gate
+      - order-service-unit-gate
+      - product-service-compose-integration-gate
+      - order-service-compose-integration-gate
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        continue-on-error: true
+
+      - name: Send Discord notification
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          DISCORD_WEBHOOK_SSM_NAME: ${{ vars.DISCORD_WEBHOOK_SSM_NAME || '/codex/discord-webhook' }}
+          WORKFLOW_NAME: Flashsales Deploy Pre
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: bash .github/scripts/notify-discord.sh
