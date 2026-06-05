@@ -33,6 +33,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   product-service-unit-gate:
@@ -129,6 +130,54 @@ jobs:
         run: |
           docker compose -f docker-compose.yaml logs --no-color || true
 
+  build-and-push:
+    name: Build and Push Images
+    needs:
+      - product-service-unit-gate
+      - order-service-unit-gate
+      - product-service-compose-integration-gate
+      - order-service-compose-integration-gate
+    if: >-
+      ${{
+        github.event_name != 'pull_request' &&
+        needs.product-service-unit-gate.result == 'success' &&
+        needs.order-service-unit-gate.result == 'success' &&
+        needs.product-service-compose-integration-gate.result == 'success' &&
+        needs.order-service-compose-integration-gate.result == 'success'
+      }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - user-service
+          - product-service
+          - order-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/flashsales-${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/flashsales-${{ matrix.service }}:latest
+
   notify-discord:
     name: Notify Discord
     needs:
@@ -136,6 +185,7 @@ jobs:
       - order-service-unit-gate
       - product-service-compose-integration-gate
       - order-service-compose-integration-gate
+      - build-and-push
     if: ${{ always() && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -163,6 +213,7 @@ jobs:
       - order-service-unit-gate
       - product-service-compose-integration-gate
       - order-service-compose-integration-gate
+      - build-and-push
     if: >-
       ${{
         github.event_name == 'push' &&
@@ -170,7 +221,8 @@ jobs:
         needs.product-service-unit-gate.result == 'success' &&
         needs.order-service-unit-gate.result == 'success' &&
         needs.product-service-compose-integration-gate.result == 'success' &&
-        needs.order-service-compose-integration-gate.result == 'success'
+        needs.order-service-compose-integration-gate.result == 'success' &&
+        needs.build-and-push.result == 'success'
       }}
     runs-on: ubuntu-latest
 
@@ -200,6 +252,7 @@ jobs:
               "flashsale_repository": "${{ github.repository }}",
               "flashsale_ref": "${{ github.ref_name }}",
               "flashsale_sha": "${{ github.sha }}",
+              "flashsale_image_tag": "${{ github.sha }}",
               "flashsale_run_id": "${{ github.run_id }}",
               "flashsale_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
