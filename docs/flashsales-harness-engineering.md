@@ -55,7 +55,7 @@ The runtime consistency harness exists because the perf harness alone is not eno
 
 Primary files:
 
-- `.github/workflows/flashsales-consistency.yml`
+- `.github/workflows/flashsales-deploy-post.yml`
 - `flashsale/perf/python/consistency_harness.py`
 
 ### 3. The hotspot profile overstates post-sellout behavior
@@ -95,10 +95,14 @@ Implication:
 
 - deploy workflow: `.github/workflows/flashsales-deploy.yml`
 - post-deploy workflow: `.github/workflows/flashsales-deploy-post.yml`
-- reusable runtime consistency workflow: `.github/workflows/flashsales-consistency.yml`
-- reusable perf workflow: `.github/workflows/flashsales-perf-concurrency-suite.yml`
 - runtime script: `flashsale/perf/python/consistency_harness.py`
 - cluster component: optional `dbProxy` in `charts/flashsales`
+
+Perf cadence ownership is intentionally app-first:
+
+- `flashsale/release/flashsale-quality-contract.yaml` defines the ordered perf cadence
+- `.github/workflows/flashsales-deploy-post.yml` acts as the platform executor and unified post-deploy quality entrypoint
+- adding, removing, or reordering perf lanes should happen in the flashsale contract, not by hardcoding new workflow jobs in the platform repo
 
 The two gates have different roles:
 

@@ -53,19 +53,18 @@ Today that translation is performed by `homelab-cloud/.github/scripts/render_fla
 
 It declares:
 
-- perf lane names
+- ordered perf cadence
 - perf lane invocation specs
 - consistency harness invocation spec
 
 The intended split is:
 
-1. `flashsale` owns what those lanes mean and how they are invoked.
-2. `homelab-cloud` owns when they run, with which runner, against which cluster, and with which kubeconfig / namespace / port-forward strategy.
+1. `flashsale` owns what those lanes mean, the order they run in, and how they are invoked.
+2. `homelab-cloud` owns which runner executes them, against which cluster, and with which kubeconfig / namespace / port-forward strategy.
 
 Today that contract is consumed by:
 
-- `homelab-cloud/.github/workflows/flashsales-perf-concurrency-suite.yml`
-- `homelab-cloud/.github/workflows/flashsales-consistency.yml`
+- `homelab-cloud/.github/workflows/flashsales-deploy-post.yml`
 - `homelab-cloud/.github/scripts/export_flashsale_quality_contract.py`
 
 This contract is also schema-validated in `flashsale/.github/workflows/flashsales-deploy-pre.yml`.

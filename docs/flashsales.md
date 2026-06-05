@@ -73,7 +73,9 @@ For correctness gates:
 - `flashsale/.github/workflows/flashsales-deploy-pre.yml` also contains the pre-deploy Docker Compose integration gate based on `docker-compose.yaml`
 - that app-owned pre-deploy workflow does not run Helm or modify the live k3s deployment
 - `homelab-cloud/.github/workflows/flashsales-deploy.yml` consumes the app release manifest and performs the default k3s deploy
-- `homelab-cloud/.github/workflows/flashsales-deploy-post.yml` runs after deploy, first calling the reusable runtime consistency harness in `homelab-cloud/.github/workflows/flashsales-consistency.yml`, then the reusable perf suite in `homelab-cloud/.github/workflows/flashsales-perf-concurrency-suite.yml`
+- `homelab-cloud/.github/workflows/flashsales-deploy-post.yml` is the single post-deploy quality workflow
+- that workflow runs runtime consistency first, then executes the ordered perf cadence from `flashsale/release/flashsale-quality-contract.yaml`
+- once perf completes, that workflow can open an issue back in the standalone `flashsale` repo with the Actions run link for follow-up
 - the pre-deploy gate now covers lifecycle, out-of-stock, duplicate-order, duplicate-webhook, timeout-race, DB migration compatibility, and API contract compatibility
 
 The current inventory flow uses an explicit reservation lifecycle:

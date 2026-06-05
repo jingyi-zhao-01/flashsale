@@ -4,18 +4,19 @@ metadata:
   name: flashsale
 spec:
   perf:
-    lanes:
-      smoke:
+    cadence:
+      - id: smoke
         displayName: Smoke Test (10 TPS)
+        pauseBeforeSeconds: 180
         invocation:
           type: make
           target: concurrency-smoke
-      idempotencyLite:
+      - id: idempotencyLite
         displayName: Idempotency Lite Replay
         invocation:
           type: make
           target: concurrency-idempotency-lite
-      hotspot10Tps:
+      - id: hotspot10Tps
         displayName: Hotspot 10 TPS
         invocation:
           type: make
