@@ -46,3 +46,28 @@ In other words:
 3. deploy tooling merges both into the final release.
 
 Today that translation is performed by `homelab-cloud/.github/scripts/render_flashsale_release.py`, which renders a temporary Helm values overlay before `helm upgrade --install`.
+
+## Quality Contract
+
+`flashsale-quality-contract.yaml` is the app-owned contract for quality lanes that are executed by the platform repo.
+
+It declares:
+
+- perf lane names
+- perf lane invocation specs
+- consistency harness invocation spec
+
+The intended split is:
+
+1. `flashsale` owns what those lanes mean and how they are invoked.
+2. `homelab-cloud` owns when they run, with which runner, against which cluster, and with which kubeconfig / namespace / port-forward strategy.
+
+Today that contract is consumed by:
+
+- `homelab-cloud/.github/workflows/flashsales-perf-concurrency-suite.yml`
+- `homelab-cloud/.github/workflows/flashsales-consistency.yml`
+- `homelab-cloud/.github/scripts/export_flashsale_quality_contract.py`
+
+This contract is also schema-validated in `flashsale/.github/workflows/flashsales-deploy-pre.yml`.
+If `release/flashsale-quality-contract.yaml` drifts from the expected structure,
+the predeploy pipeline fails before image build or downstream dispatch.
