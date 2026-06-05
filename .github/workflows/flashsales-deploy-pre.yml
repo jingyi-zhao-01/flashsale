@@ -36,6 +36,29 @@ permissions:
   packages: write
 
 jobs:
+  shared-unit-gate:
+    name: Unit Gate - Shared Library Cache, Observability, And Pool
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install shared dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ./shared
+
+      - name: Run shared unit tests
+        working-directory: shared
+        run: |
+          python -m unittest discover -s tests/unit -t . -p 'test_*.py'
+
   product-service-unit-gate:
     name: Unit Gate - Product Service Lifecycle, Contract, And Migration
     runs-on: ubuntu-latest
@@ -84,12 +107,38 @@ jobs:
         run: |
           python -m unittest discover -s tests/unit -t . -p 'test_*.py'
 
+  user-service-unit-gate:
+    name: Unit Gate - User Service CRUD, Contract, And Migration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install user-service dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ./shared
+          python -m pip install -r user-service/requirements.txt
+
+      - name: Run user-service unit tests
+        working-directory: user-service
+        run: |
+          python -m unittest discover -s tests/unit -t . -p 'test_*.py'
+
   product-service-compose-integration-gate:
     name: Integration Gate - Docker Compose Product Service
     runs-on: ubuntu-latest
     needs:
+      - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
+      - user-service-unit-gate
 
     steps:
       - name: Checkout
@@ -111,8 +160,10 @@ jobs:
     name: Integration Gate - Docker Compose Order Service
     runs-on: ubuntu-latest
     needs:
+      - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
+      - user-service-unit-gate
 
     steps:
       - name: Checkout
@@ -130,20 +181,51 @@ jobs:
         run: |
           docker compose -f docker-compose.yaml logs --no-color || true
 
+  user-service-compose-integration-gate:
+    name: Integration Gate - Docker Compose User Service
+    runs-on: ubuntu-latest
+    needs:
+      - shared-unit-gate
+      - product-service-unit-gate
+      - order-service-unit-gate
+      - user-service-unit-gate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure Docker Compose is available
+        run: docker compose version
+
+      - name: Run user-service compose integration
+        run: |
+          python3 scripts/flashsale_compose_integration.py --suite user
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yaml logs --no-color || true
+
   build-and-push:
     name: Build and Push Images
     needs:
+      - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
+      - user-service-unit-gate
       - product-service-compose-integration-gate
       - order-service-compose-integration-gate
+      - user-service-compose-integration-gate
     if: >-
       ${{
         github.event_name != 'pull_request' &&
+        needs.shared-unit-gate.result == 'success' &&
         needs.product-service-unit-gate.result == 'success' &&
         needs.order-service-unit-gate.result == 'success' &&
+        needs.user-service-unit-gate.result == 'success' &&
         needs.product-service-compose-integration-gate.result == 'success' &&
-        needs.order-service-compose-integration-gate.result == 'success'
+        needs.order-service-compose-integration-gate.result == 'success' &&
+        needs.user-service-compose-integration-gate.result == 'success'
       }}
     runs-on: ubuntu-latest
     strategy:
@@ -181,10 +263,13 @@ jobs:
   notify-discord:
     name: Notify Discord
     needs:
+      - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
+      - user-service-unit-gate
       - product-service-compose-integration-gate
       - order-service-compose-integration-gate
+      - user-service-compose-integration-gate
       - build-and-push
     if: ${{ always() && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
@@ -209,19 +294,25 @@ jobs:
   dispatch-homelab-cloud:
     name: Dispatch Homelab Cloud Deploy
     needs:
+      - shared-unit-gate
       - product-service-unit-gate
       - order-service-unit-gate
+      - user-service-unit-gate
       - product-service-compose-integration-gate
       - order-service-compose-integration-gate
+      - user-service-compose-integration-gate
       - build-and-push
     if: >-
       ${{
         github.event_name == 'push' &&
         github.ref == 'refs/heads/main' &&
+        needs.shared-unit-gate.result == 'success' &&
         needs.product-service-unit-gate.result == 'success' &&
         needs.order-service-unit-gate.result == 'success' &&
+        needs.user-service-unit-gate.result == 'success' &&
         needs.product-service-compose-integration-gate.result == 'success' &&
         needs.order-service-compose-integration-gate.result == 'success' &&
+        needs.user-service-compose-integration-gate.result == 'success' &&
         needs.build-and-push.result == 'success'
       }}
     runs-on: ubuntu-latest

@@ -5,6 +5,7 @@
 import unittest
 from tests.integration_test_support import (
     FlashsaleIntegrationClient,
+    request_json,
     reset_services,
     wait_for_stack,
 )
@@ -89,6 +90,87 @@ class OrderServiceComposeIntegrationTest(unittest.TestCase):
         self.assertEqual(str(expire["expired_count"]), "1")
         self.assertEqual(replay["status"], "expired")
         self.assertEqual(replay["payment_status"], "cancelled")
+
+    def test_list_orders_returns_all_created_orders(self) -> None:
+        """Listing orders should return all orders across the stack."""
+        self.client.create_order(
+            user_id=self.user_id,
+            product_id=self.product_id,
+            quantity=1,
+            idempotency_key="compose-list-1",
+        )
+        self.client.create_order(
+            user_id=self.user_id,
+            product_id=self.product_id,
+            quantity=1,
+            idempotency_key="compose-list-2",
+        )
+
+        result = self.client.list_orders()
+        self.assertIsInstance(result, list)
+        self.assertGreaterEqual(len(result), 2)
+        for order in result:
+            self.assertIn("id", order)
+            self.assertIn("status", order)
+            self.assertIn("payment_status", order)
+
+    def test_get_order_not_found_returns_404(self) -> None:
+        """Requesting a non-existent order should return 404."""
+        result = request_json(
+            "GET",
+            "http://127.0.0.1:18003/orders/99999",
+            expected_status=404,
+        )
+        self.assertEqual(result["detail"], "order not found")
+
+    def test_payment_webhook_on_nonexistent_order_returns_404(self) -> None:
+        """Sending a payment webhook for a non-existent order returns 404."""
+        result = request_json(
+            "POST",
+            "http://127.0.0.1:18003/payments/webhook",
+            {"order_id": 99999, "event_id": "evt-nonexistent", "status": "succeeded"},
+            expected_status=404,
+        )
+        self.assertEqual(result["detail"], "order not found")
+
+    def test_order_with_invalid_user_returns_error(self) -> None:
+        """Creating an order for a non-existent user should fail."""
+        result = self.client.create_order(
+            user_id=99999,
+            product_id=self.product_id,
+            quantity=1,
+            idempotency_key="compose-bad-user",
+            expected_status=(404, 502),
+        )
+        self.assertIn("detail", result)
+
+    def test_order_with_invalid_product_returns_404(self) -> None:
+        """Creating an order for a non-existent product should fail."""
+        result = request_json(
+            "POST",
+            "http://127.0.0.1:18003/orders",
+            {
+                "user_id": self.user_id,
+                "idempotency_key": "compose-bad-product",
+                "items": [{"product_id": 99999, "quantity": 1}],
+            },
+            expected_status=404,
+        )
+        self.assertIn("detail", result)
+
+    def test_order_with_empty_items_returns_400(self) -> None:
+        """Creating an order with no items should return 400."""
+        result = request_json(
+            "POST",
+            "http://127.0.0.1:18003/orders",
+            {
+                "user_id": self.user_id,
+                "idempotency_key": "compose-empty-items",
+                "items": [],
+            },
+            expected_status=400,
+        )
+        self.assertEqual(result["detail"], "order items cannot be empty")
 
 
 if __name__ == "__main__":
