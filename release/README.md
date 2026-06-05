@@ -55,7 +55,6 @@ It declares:
 
 - ordered perf cadence
 - perf lane invocation specs
-- consistency harness invocation spec
 
 The intended split is:
 

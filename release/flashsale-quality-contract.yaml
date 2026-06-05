@@ -21,9 +21,3 @@ spec:
         invocation:
           type: make
           target: concurrency-hotspot-10tps
-
-  consistency:
-    displayName: Runtime Consistency Harness
-    invocation:
-      type: python
-      script: ./flashsale/perf/python/consistency_harness.py
