@@ -1,0 +1,79 @@
+services:
+  user-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: user_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d user_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  product-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: product_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d product_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: order_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d order_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  user-service:
+    build:
+      context: .
+      dockerfile: user-service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://test:test@user-db:5432/user_test
+    ports:
+      - "18001:8001"
+    depends_on:
+      user-db:
+        condition: service_healthy
+
+  product-service:
+    build:
+      context: .
+      dockerfile: product-service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://test:test@product-db:5432/product_test
+    ports:
+      - "18002:8002"
+    depends_on:
+      product-db:
+        condition: service_healthy
+
+  order-service:
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://test:test@order-db:5432/order_test
+      PRODUCT_SERVICE_URL: http://product-service:8002
+      USER_SERVICE_URL: http://user-service:8001
+      ORDER_PENDING_TTL_SECONDS: 1
+    ports:
+      - "18003:8003"
+    depends_on:
+      order-db:
+        condition: service_healthy
+      product-service:
+        condition: service_started
+      user-service:
+        condition: service_started

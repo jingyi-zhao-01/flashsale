@@ -1,0 +1,81 @@
+direction: right
+
+before: {
+  label: "ADR 0002: reservation terminalization moves off the sync path"
+  shape: sequence_diagram
+
+  client
+  order: "order-service API"
+  orders: "order DB"
+  queue: "durable queue / outbox"
+  worker: "terminalization worker"
+  product: "product-service"
+  inventory: "inventory DB"
+
+  client -> order: "1. POST /orders"
+  order -> product: "2. reserve(product_id, quantity)"
+  product -> inventory: "3. lock hotspot row and reserve"
+  inventory -> product: "4. reservation_id, unit_price"
+  product -> order: "5. reservation created"
+  order -> orders: "6. create order pending"
+
+  sync_terminalization: {
+    label: "仍在同步请求路径里的终态尾段"
+    style.fill: "#FEE2E2"
+    style.stroke: "#DC2626"
+    order -> queue: "7. enqueue confirm / cancel intent"
+    order -> client: "8. return after durable enqueue"
+  }
+
+  async_terminalization: {
+    label: "已经移到后台 worker 的部分"
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+    worker -> queue: "9. claim task"
+    queue -> worker: "10. reservation_id + action"
+    worker -> product: "11. confirm / cancel reservation"
+    product -> inventory: "12. update reservation state"
+    inventory -> product: "13. terminalized"
+    worker -> orders: "14. mark task complete"
+  }
+}
+
+after: {
+  label: "ADR 0002-1: /orders returns before order confirmation fully settles"
+  shape: sequence_diagram
+
+  client
+  order: "order-service API"
+  orders: "order DB"
+  queue: "durable queue / outbox"
+  worker: "terminalization worker"
+  product: "product-service"
+  inventory: "inventory DB"
+
+  client -> order: "1. POST /orders"
+  order -> product: "2. reserve(product_id, quantity)"
+  product -> inventory: "3. lock hotspot row and reserve"
+  inventory -> product: "4. reservation_id, unit_price"
+  product -> order: "5. reservation created"
+  order -> orders: "6. create pending order"
+
+  durable_enqueue: {
+    label: "新增 durable enqueue 边界"
+    style.fill: "#DCFCE7"
+    style.stroke: "#16A34A"
+    order -> queue: "7. persist terminalization intent"
+    order -> client: "8. return pending order without waiting"
+  }
+
+  async_terminalization: {
+    label: "继续由后台 worker 完成"
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+    worker -> queue: "9. claim task"
+    queue -> worker: "10. reservation_id + action"
+    worker -> product: "11. confirm / cancel reservation"
+    product -> inventory: "12. update reservation state"
+    inventory -> product: "13. terminalized"
+    worker -> orders: "14. update final order state"
+  }
+}

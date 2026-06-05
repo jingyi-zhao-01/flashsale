@@ -1,0 +1,479 @@
+openapi: 3.1.0
+info:
+  title: order-service
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      tags:
+      - system
+      summary: Service health check
+      description: Returns basic process health for order-service without touching
+        dependencies.
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ready:
+    get:
+      tags:
+      - system
+      summary: Service readiness check
+      description: Returns process readiness for order-service without touching
+        dependencies.
+      operationId: ready_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /live:
+    get:
+      tags:
+      - system
+      summary: Service liveness check
+      description: Returns basic process liveness for order-service without touching
+        dependencies.
+      operationId: live_live_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /orders:
+    get:
+      tags:
+      - orders
+      summary: List orders
+      description: Returns all persisted orders visible to the service storage backend.
+      operationId: list_orders_orders_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/OrderOut'
+                type: array
+                title: Response List Orders Orders Get
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags:
+      - orders
+      summary: Create order
+      description: Validates the user, reserves product stock, persists a pending
+        order, and enqueues terminalization work.
+      operationId: create_order_orders_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderOut'
+        '400':
+          description: Order items cannot be empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User or product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Insufficient product stock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Order service is busy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Dependent service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Dependent service timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /orders/{order_id}:
+    get:
+      tags:
+      - orders
+      summary: Get order
+      description: Fetches a single order by identifier.
+      operationId: get_order_orders__order_id__get
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Order Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderOut'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /payments/webhook:
+    post:
+      tags:
+      - payments
+      summary: Process payment webhook
+      description: Applies a successful payment event to the referenced order.
+      operationId: payment_webhook_payments_webhook_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentWebhookRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderOut'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/reset:
+    post:
+      tags:
+      - admin
+      summary: Reset order storage
+      description: Clears order-service backing storage for local and integration
+        test workflows.
+      operationId: admin_reset_admin_reset_post
+      responses:
+        '204':
+          description: Successful Response
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/expire-orders:
+    post:
+      tags:
+      - admin
+      summary: Expire pending orders
+      description: Marks elapsed pending orders as expired and releases their reservations.
+      operationId: admin_expire_orders_admin_expire_orders_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpireOrdersResult'
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    ErrorResponse:
+      properties:
+        detail:
+          type: string
+          title: Detail
+          description: Human-readable description of the error condition.
+      type: object
+      required:
+      - detail
+      title: ErrorResponse
+      description: Default error payload returned by FastAPI exception handlers.
+    ExpireOrdersResult:
+      properties:
+        expired_count:
+          type: integer
+          title: Expired Count
+          description: Number of pending orders marked as expired.
+      type: object
+      required:
+      - expired_count
+      title: ExpireOrdersResult
+      description: Summary of the order expiry maintenance task.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: Health status for the service.
+        service:
+          type: string
+          title: Service
+          description: Service name reporting the health response.
+      type: object
+      required:
+      - status
+      - service
+      title: HealthResponse
+      description: Health response for service availability checks.
+    OrderCreateRequest:
+      properties:
+        user_id:
+          type: integer
+          title: User Id
+          description: Identifier of the user placing the order.
+        items:
+          items:
+            $ref: '#/components/schemas/OrderItemRequest'
+          type: array
+          title: Items
+          description: Products and quantities to reserve and persist in the order.
+        idempotency_key:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Idempotency Key
+          description: Optional client-supplied key used to deduplicate repeated order
+            submissions.
+      type: object
+      required:
+      - user_id
+      - items
+      title: OrderCreateRequest
+      description: Payload used to create a new order.
+    OrderItemOut:
+      properties:
+        product_id:
+          type: integer
+          title: Product Id
+          description: Identifier of the purchased product.
+        quantity:
+          type: integer
+          title: Quantity
+          description: Quantity confirmed for this line item.
+        unit_price:
+          type: number
+          title: Unit Price
+          description: Unit price captured when the order was created.
+        line_total:
+          type: number
+          title: Line Total
+          description: Subtotal for this line item.
+      type: object
+      required:
+      - product_id
+      - quantity
+      - unit_price
+      - line_total
+      title: OrderItemOut
+      description: One persisted line item in an order response.
+    OrderItemRequest:
+      properties:
+        product_id:
+          type: integer
+          title: Product Id
+          description: Identifier of the product to purchase.
+        quantity:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Quantity
+          description: Requested quantity for this product.
+      type: object
+      required:
+      - product_id
+      - quantity
+      title: OrderItemRequest
+      description: One product line requested for a new order.
+    OrderOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+          description: Identifier of the order.
+        user_id:
+          type: integer
+          title: User Id
+          description: Identifier of the user who placed the order.
+        created_at:
+          type: string
+          title: Created At
+          description: ISO-8601 timestamp when the order was created.
+        total_amount:
+          type: number
+          title: Total Amount
+          description: Total amount charged for the order.
+        status:
+          type: string
+          enum:
+          - pending
+          - confirmed
+          - failed
+          - cancelled
+          - expired
+          title: Status
+          description: Lifecycle state of the order.
+        payment_status:
+          type: string
+          enum:
+          - pending
+          - succeeded
+          - cancelled
+          title: Payment Status
+          description: Current payment state recorded for the order.
+        idempotency_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency Key
+          description: Optional idempotency key associated with the order request.
+        items:
+          items:
+            $ref: '#/components/schemas/OrderItemOut'
+          type: array
+          title: Items
+          description: Line items captured in the order.
+      type: object
+      required:
+      - id
+      - user_id
+      - created_at
+      - total_amount
+      - status
+      - payment_status
+      - items
+      title: OrderOut
+      description: Order resource returned by the API.
+    PaymentWebhookRequest:
+      properties:
+        order_id:
+          type: integer
+          title: Order Id
+          description: Identifier of the order referenced by the webhook event.
+        event_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Event Id
+          description: Optional gateway event identifier used for webhook deduplication.
+        status:
+          type: string
+          const: succeeded
+          title: Status
+          description: Payment status accepted by the webhook endpoint.
+          default: succeeded
+      type: object
+      required:
+      - order_id
+      title: PaymentWebhookRequest
+      description: Payload accepted from the payment success webhook.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

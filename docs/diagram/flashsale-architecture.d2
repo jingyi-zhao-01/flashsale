@@ -1,0 +1,201 @@
+direction: right
+
+title: {
+  label: "Flashsale Architecture"
+  shape: text
+  style: {
+    bold: true
+    font-size: 32
+  }
+}
+
+client: {
+  label: "Client / Load Generator"
+  shape: oval
+  style: {
+    fill: "#0F172A"
+    stroke: "#93C5FD"
+    stroke-width: 2
+  }
+}
+
+edge_plane: {
+  label: "Edge Plane"
+  style: {
+    fill: "#111827"
+    stroke: "#60A5FA"
+    stroke-width: 2
+  }
+
+  ingress: {
+    label: "Ingress / Service LB"
+    shape: hexagon
+    style: {
+      fill: "#1E293B"
+      stroke: "#60A5FA"
+    }
+  }
+}
+
+application_plane: {
+  label: "Application Plane"
+  style: {
+    fill: "#1F2937"
+    stroke: "#34D399"
+    stroke-width: 2
+  }
+
+  user_service: {
+    label: "user-service"
+    shape: rectangle
+    style: {
+      fill: "#0F172A"
+      stroke: "#34D399"
+    }
+  }
+
+  order_service: {
+    label: "order-service"
+    shape: rectangle
+    style: {
+      fill: "#0F172A"
+      stroke: "#34D399"
+      stroke-width: 3
+    }
+  }
+
+  product_service: {
+    label: "product-service"
+    shape: rectangle
+    style: {
+      fill: "#0F172A"
+      stroke: "#34D399"
+    }
+  }
+}
+
+async_plane: {
+  label: "Async / Coordination Plane"
+  style: {
+    fill: "#1E1B4B"
+    stroke: "#A78BFA"
+    stroke-width: 2
+  }
+
+  reservation_outbox: {
+    label: "Reservation Terminalization Outbox"
+    shape: queue
+    style: {
+      fill: "#312E81"
+      stroke: "#A78BFA"
+    }
+  }
+
+  terminalization_worker: {
+    label: "Terminalization Worker"
+    shape: rectangle
+    style: {
+      fill: "#312E81"
+      stroke: "#C4B5FD"
+    }
+  }
+}
+
+data_plane: {
+  label: "Data Plane"
+  style: {
+    fill: "#172554"
+    stroke: "#F59E0B"
+    stroke-width: 2
+  }
+
+  order_db: {
+    label: "PostgreSQL\norders + terminalization tasks"
+    shape: cylinder
+    style: {
+      fill: "#1E3A8A"
+      stroke: "#F59E0B"
+    }
+  }
+
+  product_db: {
+    label: "PostgreSQL\nproducts + reservations"
+    shape: cylinder
+    style: {
+      fill: "#1E3A8A"
+      stroke: "#F59E0B"
+    }
+  }
+
+  redis: {
+    label: "Redis"
+    shape: cylinder
+    style: {
+      fill: "#1E3A8A"
+      stroke: "#F59E0B"
+    }
+  }
+
+  rabbitmq: {
+    label: "RabbitMQ"
+    shape: cylinder
+    style: {
+      fill: "#1E3A8A"
+      stroke: "#F59E0B"
+    }
+  }
+}
+
+ops_plane: {
+  label: "Observability / Ops Plane"
+  style: {
+    fill: "#3F1D2E"
+    stroke: "#F472B6"
+    stroke-width: 2
+  }
+
+  probes: {
+    label: "Kubernetes Probes\n/health /live"
+    shape: document
+    style: {
+      fill: "#4A1D37"
+      stroke: "#F472B6"
+    }
+  }
+
+  grafana: {
+    label: "Grafana / Metrics / Logs"
+    shape: document
+    style: {
+      fill: "#4A1D37"
+      stroke: "#F472B6"
+    }
+  }
+}
+
+client -> edge_plane.ingress: "HTTP"
+edge_plane.ingress -> application_plane.order_service: "POST /orders"
+
+application_plane.order_service -> application_plane.user_service: "validate user"
+application_plane.order_service -> application_plane.product_service: "reserve inventory"
+
+application_plane.user_service -> data_plane.order_db: "user lookup"
+application_plane.product_service -> data_plane.product_db: "reserve / confirm / cancel"
+application_plane.order_service -> data_plane.order_db: "persist order state"
+application_plane.order_service -> async_plane.reservation_outbox: "enqueue confirm / cancel intent"
+async_plane.reservation_outbox -> async_plane.terminalization_worker: "claim task"
+async_plane.terminalization_worker -> application_plane.product_service: "confirm / cancel reservation"
+async_plane.terminalization_worker -> data_plane.order_db: "mark task complete / retry"
+
+application_plane.order_service -> data_plane.redis: "optional cache / throttle"
+application_plane.order_service -> data_plane.rabbitmq: "future async integrations"
+
+ops_plane.probes -> application_plane.order_service: "readiness / liveness"
+ops_plane.probes -> application_plane.product_service: "readiness / liveness"
+ops_plane.probes -> application_plane.user_service: "readiness / liveness"
+
+application_plane.order_service -> ops_plane.grafana: "request metrics"
+application_plane.product_service -> ops_plane.grafana: "lock / reservation metrics"
+async_plane.terminalization_worker -> ops_plane.grafana: "backlog / retry metrics"
+
+client.style.fill: "#020617"

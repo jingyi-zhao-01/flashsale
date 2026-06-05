@@ -1,0 +1,42 @@
+[project]
+name = "homelab-cloud"
+version = "0.1.0"
+description = "Homelab flashsales microservices on k3s"
+requires-python = ">=3.12"
+dependencies = [
+  "user-service",
+  "product-service",
+  "order-service",
+  "flashsale-shared",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pylint>=3.3.0",
+  "pre-commit>=3.0.0",
+]
+
+[tool.uv.workspace]
+members = [
+  "user-service",
+  "product-service",
+  "order-service",
+  "shared",
+]
+
+[tool.uv.sources]
+user-service = { workspace = true }
+product-service = { workspace = true }
+order-service = { workspace = true }
+flashsale-shared = { workspace = true }
+
+[tool.pylint.format]
+max-module-lines = 600
+
+[tool.pylint.messages_control]
+disable = [
+  "all",
+]
+enable = [
+  "too-many-lines",
+]

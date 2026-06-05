@@ -1,0 +1,104 @@
+direction: right
+
+title: {
+  label: "Flashsale State Machines"
+  shape: text
+  style: {
+    bold: true
+    font-size: 28
+  }
+}
+
+order_state: {
+  label: "Order Lifecycle"
+  style: {
+    fill: "#F8FAFC"
+    stroke: "#2563EB"
+  }
+  pending
+  confirmed
+  failed
+  cancelled
+  expired
+}
+
+reservation_state: {
+  label: "Reservation Lifecycle"
+  style: {
+    fill: "#F8FAFC"
+    stroke: "#059669"
+  }
+  reserved
+  confirmed
+  cancelled
+  expired
+}
+
+task_state: {
+  label: "Terminalization Task Lifecycle"
+  style: {
+    fill: "#F8FAFC"
+    stroke: "#EA580C"
+  }
+  queued
+  processing
+  retrying
+  succeeded
+  error
+}
+
+order_state.pending.style.fill: "#EFF6FF"
+order_state.confirmed.style.fill: "#EFF6FF"
+order_state.failed.style.fill: "#EFF6FF"
+order_state.cancelled.style.fill: "#EFF6FF"
+order_state.expired.style.fill: "#EFF6FF"
+order_state.pending.style.stroke: "#2563EB"
+order_state.confirmed.style.stroke: "#2563EB"
+order_state.failed.style.stroke: "#2563EB"
+order_state.cancelled.style.stroke: "#2563EB"
+order_state.expired.style.stroke: "#2563EB"
+
+reservation_state.reserved.style.fill: "#ECFDF5"
+reservation_state.confirmed.style.fill: "#ECFDF5"
+reservation_state.cancelled.style.fill: "#ECFDF5"
+reservation_state.expired.style.fill: "#ECFDF5"
+reservation_state.reserved.style.stroke: "#059669"
+reservation_state.confirmed.style.stroke: "#059669"
+reservation_state.cancelled.style.stroke: "#059669"
+reservation_state.expired.style.stroke: "#059669"
+
+task_state.queued.style.fill: "#FFF7ED"
+task_state.processing.style.fill: "#FFF7ED"
+task_state.retrying.style.fill: "#FFF7ED"
+task_state.succeeded.style.fill: "#FFF7ED"
+task_state.error.style.fill: "#FFF7ED"
+task_state.queued.style.stroke: "#EA580C"
+task_state.processing.style.stroke: "#EA580C"
+task_state.retrying.style.stroke: "#EA580C"
+task_state.succeeded.style.stroke: "#EA580C"
+task_state.error.style.stroke: "#EA580C"
+
+order_state.pending -> order_state.confirmed: "payment + reservation success"
+order_state.pending -> order_state.failed: "create/confirm path fails"
+order_state.pending -> order_state.cancelled: "cancel requested"
+order_state.pending -> order_state.expired: "pending TTL expires"
+
+order_state.confirmed -> order_state.confirmed: "terminal"
+order_state.failed -> order_state.failed: "terminal"
+order_state.cancelled -> order_state.cancelled: "terminal"
+order_state.expired -> order_state.expired: "terminal"
+
+reservation_state.reserved -> reservation_state.confirmed: "confirm"
+reservation_state.reserved -> reservation_state.cancelled: "cancel"
+reservation_state.reserved -> reservation_state.expired: "expire"
+reservation_state.confirmed -> reservation_state.confirmed: "terminal"
+reservation_state.cancelled -> reservation_state.cancelled: "terminal"
+reservation_state.expired -> reservation_state.expired: "terminal"
+
+task_state.queued -> task_state.processing: "worker claims task"
+task_state.processing -> task_state.succeeded: "downstream call succeeds"
+task_state.processing -> task_state.retrying: "downstream returns 4xx/5xx or times out"
+task_state.processing -> task_state.error: "error event recorded"
+task_state.error -> task_state.retrying: "reschedule with backoff"
+task_state.retrying -> task_state.processing: "becomes available and re-claimed"
+task_state.succeeded -> task_state.succeeded: "terminal"

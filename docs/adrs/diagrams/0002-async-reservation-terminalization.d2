@@ -1,0 +1,77 @@
+direction: down
+
+before: {
+  label: "改造前：confirm / cancel 仍在同步请求路径"
+  shape: sequence_diagram
+
+  client
+  order: "order-service API"
+  orders: "order DB"
+  product: "product-service"
+  inventory: "inventory DB"
+
+  client -> order: "1. POST /orders"
+  order -> product: "2. reserve(product_id, quantity)"
+  product -> inventory: "3. lock hotspot row and reserve"
+  inventory -> product: "4. reservation_id, unit_price"
+  product -> order: "5. reservation created"
+  order -> orders: "6. create order pending"
+  order -> order: "7. process payment"
+
+  sync_terminalization: {
+    label: "热点路径中的同步 terminalization"
+    style.fill: "#FEE2E2"
+    style.stroke: "#DC2626"
+    order -> product: "8. confirm / cancel reservation"
+    product -> inventory: "9. update reservation state"
+    inventory -> product: "10. terminalized"
+    product -> order: "11. success / error"
+  }
+
+  order -> orders: "12. update final order state"
+  order -> client: "13. return only after confirm / cancel finishes"
+}
+
+after: {
+  label: "改造后：confirm / cancel 移到异步 worker"
+  shape: sequence_diagram
+
+  client
+  order: "order-service API"
+  orders: "order DB"
+  queue: "durable queue / outbox"
+  worker: "terminalization worker"
+  product: "product-service"
+  inventory: "inventory DB"
+
+  client -> order: "1. POST /orders"
+  order -> product: "2. reserve(product_id, quantity)"
+  product -> inventory: "3. lock hotspot row and reserve"
+  inventory -> product: "4. reservation_id, unit_price"
+  product -> order: "5. reservation created"
+  order -> orders: "6. create order pending"
+  order -> order: "7. decide confirm or cancel intent"
+
+  async_enqueue: {
+    label: "新增长链路：durable enqueue"
+    style.fill: "#DCFCE7"
+    style.stroke: "#16A34A"
+    order -> orders: "8. persist terminalization intent"
+    order -> queue: "9. enqueue terminalization task"
+  }
+
+  order -> client: "10. return without waiting for confirm / cancel"
+
+  async_terminalization: {
+    label: "已从请求路径移除，改由后台执行"
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+    worker -> queue: "11. claim task"
+    queue -> worker: "12. reservation_id + action"
+    worker -> product: "13. confirm / cancel reservation"
+    product -> inventory: "14. update reservation state"
+    inventory -> product: "15. terminalized"
+    product -> worker: "16. success / idempotent duplicate"
+    worker -> orders: "17. mark task complete"
+  }
+}

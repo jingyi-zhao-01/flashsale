@@ -1,0 +1,98 @@
+direction: right
+
+title: {
+  label: "Flashsale Runtime Order Flow"
+  shape: text
+  style: {
+    bold: true
+    font-size: 28
+  }
+}
+
+client: {
+  label: "Client"
+  style: {
+    fill: "#EFF6FF"
+    stroke: "#2563EB"
+  }
+}
+order_api: {
+  label: "order-service API"
+  style: {
+    fill: "#ECFDF5"
+    stroke: "#059669"
+  }
+}
+user_api: {
+  label: "user-service API"
+  style: {
+    fill: "#ECFDF5"
+    stroke: "#059669"
+  }
+}
+product_api: {
+  label: "product-service API"
+  style: {
+    fill: "#ECFDF5"
+    stroke: "#059669"
+  }
+}
+order_db: {
+  label: "Order PostgreSQL"
+  shape: cylinder
+  style: {
+    fill: "#FFFBEB"
+    stroke: "#D97706"
+  }
+}
+queue: {
+  label: "Postgres Queue"
+  shape: queue
+  style: {
+    fill: "#FFF1F2"
+    stroke: "#E11D48"
+  }
+}
+worker: {
+  label: "Terminalization Worker"
+  style: {
+    fill: "#F8FAFC"
+    stroke: "#64748B"
+  }
+}
+
+client -> order_api: "1. POST /orders"
+order_api -> user_api: "2. validate user"
+order_api -> product_api: "3. reserve inventory"
+product_api -> order_api: "4. reservation_id + price"
+order_api -> order_db: "5. create order(pending/confirmed)"
+
+branch_success: {
+  label: "Persistence succeeds"
+  shape: text
+}
+
+branch_failure: {
+  label: "Persistence fails"
+  shape: text
+}
+
+order_api -> queue: "6a. enqueue confirm tasks"
+queue -> worker: "7a. claim confirm task"
+worker -> product_api: "8a. POST /reservations/{id}/confirm"
+worker -> order_db: "9a. mark succeeded / retry / error"
+
+order_api -> product_api: "6b. synchronous cancel compensation"
+order_api -> queue: "or enqueue cancel if order state requires async cleanup"
+
+note_pending: {
+  label: "Queue owner: order-service\nReason: terminalization work is derived from order workflow decisions, not from inventory facts alone."
+  shape: rectangle
+  style: {
+    fill: "#FFFFFF"
+    stroke: "#64748B"
+    stroke-dash: 4
+  }
+}
+
+note_pending -> queue
