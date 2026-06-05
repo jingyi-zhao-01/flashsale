@@ -7,8 +7,10 @@ on:
       - main
     paths:
       - 'shared/**'
+      - 'user-service/**'
       - 'product-service/**'
       - 'order-service/**'
+      - 'release/**'
       - 'scripts/**'
       - 'docker-compose.yaml'
       - '.github/workflows/flashsales-deploy-pre.yml'
@@ -16,8 +18,10 @@ on:
   pull_request:
     paths:
       - 'shared/**'
+      - 'user-service/**'
       - 'product-service/**'
       - 'order-service/**'
+      - 'release/**'
       - 'scripts/**'
       - 'docker-compose.yaml'
       - '.github/workflows/flashsales-deploy-pre.yml'
@@ -151,3 +155,53 @@ jobs:
           WORKFLOW_NAME: Flashsales Deploy Pre
           NEEDS_JSON: ${{ toJson(needs) }}
         run: bash .github/scripts/notify-discord.sh
+
+  dispatch-homelab-cloud:
+    name: Dispatch Homelab Cloud Deploy
+    needs:
+      - product-service-unit-gate
+      - order-service-unit-gate
+      - product-service-compose-integration-gate
+      - order-service-compose-integration-gate
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs.product-service-unit-gate.result == 'success' &&
+        needs.order-service-unit-gate.result == 'success' &&
+        needs.product-service-compose-integration-gate.result == 'success' &&
+        needs.order-service-compose-integration-gate.result == 'success'
+      }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger homelab-cloud deploy
+        env:
+          DISPATCH_TOKEN: ${{ secrets.HOMELAB_CLOUD_REPO_DISPATCH_TOKEN }}
+          TARGET_REPO: ${{ vars.HOMELAB_CLOUD_REPO || 'jingyi-zhao-01/homelab-cloud' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "HOMELAB_CLOUD_REPO_DISPATCH_TOKEN secret is missing"
+            exit 1
+          fi
+
+          curl --fail-with-body -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${TARGET_REPO}/dispatches" \
+            -d @- <<EOF
+          {
+            "event_type": "flashsale-release-ready",
+            "client_payload": {
+              "flashsale_repository": "${{ github.repository }}",
+              "flashsale_ref": "${{ github.ref_name }}",
+              "flashsale_sha": "${{ github.sha }}",
+              "flashsale_run_id": "${{ github.run_id }}",
+              "flashsale_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+          }
+          EOF
