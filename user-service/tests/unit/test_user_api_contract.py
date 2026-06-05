@@ -1,52 +1,8 @@
-import sys
-import types
 import unittest
 
-psycopg_stub = types.ModuleType("psycopg")
-psycopg_rows_stub = types.ModuleType("psycopg.rows")
-psycopg_errors_stub = types.ModuleType("psycopg.errors")
-email_validator_stub = types.ModuleType("email_validator")
-psycopg_stub.connect = None
+from tests.stubs import install_stubs
 
-
-class FakeUniqueViolation(Exception):
-    pass
-
-
-psycopg_errors_stub.UniqueViolation = FakeUniqueViolation
-psycopg_errors_stub.IntegrityError = FakeUniqueViolation
-psycopg_rows_stub.dict_row = object()
-
-
-class EmailNotValidError(ValueError):
-    pass
-
-
-def validate_email(value: str, *args: object, **kwargs: object) -> object:
-    return types.SimpleNamespace(email=value, normalized=value, local_part=value.split("@")[0] if "@" in value else value)
-
-
-email_validator_stub.EmailNotValidError = EmailNotValidError
-email_validator_stub.validate_email = validate_email
-email_validator_stub.__version__ = "2.0.0"
-
-import importlib.metadata as _metadata
-
-_original_distribution = _metadata.distribution
-
-
-def _patched_distribution(distribution_name: str) -> object:
-    if distribution_name == "email-validator":
-        return types.SimpleNamespace(version="2.0.0")
-    return _original_distribution(distribution_name)
-
-
-sys.modules.setdefault("psycopg", psycopg_stub)
-sys.modules.setdefault("psycopg.rows", psycopg_rows_stub)
-sys.modules.setdefault("psycopg.errors", psycopg_errors_stub)
-psycopg_stub.errors = psycopg_errors_stub
-sys.modules.setdefault("email_validator", email_validator_stub)
-_metadata.distribution = _patched_distribution
+install_stubs()
 
 from app.main import app
 

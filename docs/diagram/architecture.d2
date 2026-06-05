@@ -1,0 +1,89 @@
+# Flashsale C4 Container Diagram
+# Render: d2 --theme=0 --pad=32 docs/diagram/architecture.d2 docs/diagram/architecture.svg
+
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    sketch: false
+    theme-id: 0
+  }
+}
+
+# ----- External -----
+client: Client {
+  shape: person
+  style.fill: "#e0e7ff"
+  style.stroke: "#4f46e5"
+}
+
+# ----- Boundary: Docker Compose -----
+compose: "Flashsale — Docker Compose" {
+  style.fill: "#f8fafc"
+  style.stroke: "#94a3b8"
+  style.stroke-dash: 4
+
+  # ----- Services -----
+  order-service: "order-service\n:18000" {
+    style.fill: "#dbeafe"
+    style.stroke: "#2563eb"
+    style.stroke-width: 2
+  }
+  product-service: "product-service\n:18002" {
+    style.fill: "#dcfce7"
+    style.stroke: "#16a34a"
+    style.stroke-width: 2
+  }
+  user-service: "user-service\n:18001" {
+    style.fill: "#fef3c7"
+    style.stroke: "#d97706"
+    style.stroke-width: 2
+  }
+  terminalizer: "terminalizer\n(background worker)" {
+    style.fill: "#f3e8ff"
+    style.stroke: "#9333ea"
+    style.stroke-width: 2
+  }
+
+  # ----- Databases -----
+  order-db: "order-db\n(PG 16)" {
+    shape: cylinder
+    style.fill: "#dbeafe"
+    style.stroke: "#2563eb"
+  }
+  product-db: "product-db\n(PG 16)" {
+    shape: cylinder
+    style.fill: "#dcfce7"
+    style.stroke: "#16a34a"
+  }
+  user-db: "user-db\n(PG 16)" {
+    shape: cylinder
+    style.fill: "#fef3c7"
+    style.stroke: "#d97706"
+  }
+
+  # ----- Shared Library -----
+  shared: "flashsale_shared\n(observability, cache, pool)" {
+    style.fill: "#f3e8ff"
+    style.stroke: "#9333ea"
+  }
+
+  # Connections
+  order-service -> order-db: "SQL"
+  product-service -> product-db: "SQL / advisory lock"
+  user-service -> user-db: "SQL"
+
+  order-service -> user-service: "HTTP\nGET /users/{id}"
+  order-service -> product-service: "HTTP\nPOST /reserve\nPOST /confirm"
+  order-service -> terminalizer: "enqueue"
+
+  shared -> order-service: "import"
+  shared -> product-service: "import"
+  shared -> user-service: "import"
+}
+
+# External connections
+client -> order-service: "HTTP"
+client -> product-service: "HTTP"
+client -> user-service: "HTTP"

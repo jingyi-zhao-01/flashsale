@@ -1,0 +1,59 @@
+# Flashsale Order Creation Sequence
+# Render: d2 --theme=0 --pad=32 docs/diagram/create-order.d2 docs/diagram/create-order.svg
+
+direction: down
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    sketch: false
+    theme-id: 0
+  }
+}
+
+# ----- Participants -----
+client: Client {
+  shape: person
+  style.fill: "#e0e7ff"
+  style.stroke: "#4f46e5"
+}
+
+order-service: "order-service" {
+  style.fill: "#dbeafe"
+  style.stroke: "#2563eb"
+}
+
+user-service: "user-service" {
+  style.fill: "#fef3c7"
+  style.stroke: "#d97706"
+}
+
+product-service: "product-service" {
+  style.fill: "#dcfce7"
+  style.stroke: "#16a34a"
+}
+
+order-db: "order-db" {
+  shape: cylinder
+  style.fill: "#dbeafe"
+  style.stroke: "#2563eb"
+}
+
+terminalizer: "terminalizer\n(async worker)" {
+  style.fill: "#f3e8ff"
+  style.stroke: "#9333ea"
+}
+
+# ----- Happy Path Flow -----
+client -> order-service: "1. POST /orders\n{user_id, product_id, qty}"
+order-service -> user-service: "2. GET /users/{id}"
+user-service -> order-service: "3. 200 OK (user valid)"
+order-service -> product-service: "4. POST /reserve\n{product_id, qty, ttl}"
+product-service -> order-service: "5. 200 OK (reservation_id)"
+order-service -> order-db: "6. INSERT order\n(status=pending)"
+order-db -> order-service: "7. OK"
+order-service -> terminalizer: "8. enqueue terminalization"
+order-service -> client: "9. 201 Created\n(order_id)"
+
+# ----- Error paths (annotations) -----
+order-service.note: "• user 404 → 422\n• product 404/409 → propagate to client\n• db down → 503"

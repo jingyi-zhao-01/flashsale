@@ -16,42 +16,38 @@ from flashsale_shared.observability import start_span
 from .repositories import ProductRepository
 
 
-def _exception_name(exc: Exception) -> str:
-    return exc.__class__.__name__
-
-
-def _is_pool_error(exc: Exception) -> bool:
-    return _exception_name(exc) in {"PoolTimeout", "PoolClosed", "TooManyRequests"}
-
-
-def _is_psycopg_error(exc: Exception, *names: str) -> bool:
-    errors = getattr(psycopg, "errors", None)
-    if errors is not None:
-        for name in names:
-            exc_type = getattr(errors, name, None)
-            if exc_type is not None and isinstance(exc, exc_type):
-                return True
-    return _exception_name(exc) in set(names)
-
-
 def _map_inventory_error(exc: Exception) -> HTTPException:
-    if _is_pool_error(exc):
-        return HTTPException(
-            status_code=503,
-            detail="inventory database pool exhausted",
-        )
-    if _is_psycopg_error(exc, "LockNotAvailable", "DeadlockDetected"):
-        return HTTPException(
-            status_code=409,
-            detail="inventory is busy, retry later",
-        )
-    if _is_psycopg_error(exc, "QueryCanceled"):
-        return HTTPException(
-            status_code=504,
-            detail="inventory request timed out",
-        )
-    psycopg_error = getattr(psycopg, "Error", None)
-    if psycopg_error is not None and isinstance(exc, psycopg_error):
+    _errors = getattr(psycopg, "errors", None)
+
+    if _errors is not None:
+        _lock_not_available = getattr(_errors, "LockNotAvailable", None)
+        _deadlock = getattr(_errors, "DeadlockDetected", None)
+        if (_lock_not_available is not None and isinstance(exc, _lock_not_available)) or (
+            _deadlock is not None and isinstance(exc, _deadlock)
+        ):
+            return HTTPException(
+                status_code=409,
+                detail="inventory is busy, retry later",
+            )
+        _query_canceled = getattr(_errors, "QueryCanceled", None)
+        if _query_canceled is not None and isinstance(exc, _query_canceled):
+            return HTTPException(
+                status_code=504,
+                detail="inventory request timed out",
+            )
+
+    try:
+        import psycopg_pool
+
+        if isinstance(exc, psycopg_pool.PoolTimeout):
+            return HTTPException(
+                status_code=503,
+                detail="inventory database pool exhausted",
+            )
+    except ImportError:
+        pass
+
+    if isinstance(exc, psycopg.Error):
         return HTTPException(
             status_code=503,
             detail=DATABASE_UNAVAILABLE_MESSAGE,

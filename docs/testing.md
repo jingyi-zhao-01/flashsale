@@ -187,7 +187,7 @@ The compose integration runner:
 1. Starts `docker compose up -d --build`
 2. Waits for all services to report healthy (up to 60 attempts)
 3. Resets all services via `/admin/reset`
-4. Discovers and runs `*_integration.py` tests in the appropriate `interagtion/` directory
+4. Discovers and runs `*_integration.py` tests in the appropriate `integration/` directory
 5. Cleans up (`docker compose down -v`) on exit
 
 ---
