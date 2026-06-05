@@ -1,0 +1,67 @@
+apiVersion: flashsale.dev/v1alpha1
+kind: FlashsaleRelease
+metadata:
+  name: flashsale
+spec:
+  image:
+    # Phase 0 keeps the existing latest-tag deploy behavior.
+    tagStrategy: latest
+
+  services:
+    userService:
+      replicas: 1
+      autoscaling:
+        enabled: true
+        minReplicas: 1
+        maxReplicas: 2
+        targetCPUUtilizationPercentage: 70
+      env:
+        dbPoolMinSize: 1
+        dbPoolMaxSize: 8
+        dbPoolTimeoutSeconds: 5
+
+    productService:
+      replicas: 1
+      autoscaling:
+        enabled: true
+        minReplicas: 1
+        maxReplicas: 2
+        targetCPUUtilizationPercentage: 70
+      env:
+        dbPoolMinSize: 1
+        dbPoolMaxSize: 16
+        dbPoolTimeoutSeconds: 5
+        inventoryLockMode: optimistic
+        optimisticRetryLimit: 5
+
+    orderService:
+      replicas: 1
+      workerReplicas: 1
+      autoscaling:
+        enabled: true
+        minReplicas: 2
+        maxReplicas: 3
+        targetCPUUtilizationPercentage: 70
+      env:
+        dependencyTimeoutSeconds: 8
+        userServiceTimeoutSeconds: 5
+        productReserveTimeoutSeconds: 8
+        productReleaseTimeoutSeconds: 5
+        productTerminalizeTimeoutSeconds: 8
+        maxInflightOrders: 64
+        dbPoolMinSize: 2
+        dbPoolMaxSize: 16
+        dbPoolTimeoutSeconds: 5
+        inventoryLockMode: optimistic
+        optimisticRetryLimit: 5
+      worker:
+        env:
+          dbPoolMinSize: 1
+          dbPoolMaxSize: 8
+          dbPoolTimeoutSeconds: 5
+
+  perf:
+    concurrencyProfiles:
+      smoke: smoke
+      idempotencyLite: loadtest-lite-idempotency
+      hotspot10Tps: hotspot10

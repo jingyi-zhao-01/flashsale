@@ -8,6 +8,7 @@ Use this repo as the source of truth for flashsales status.
 
 - For workload shape, deploy steps, and entry points, use this page.
 - For current harness interpretation, known risks, and perf status, use [Flashsales harness engineering](flashsales-harness-engineering.md).
+- For app-owned release intent, use [release/flashsale-release.yaml](../release/flashsale-release.yaml) and its companion [release README](../release/README.md).
 
 ## Services
 
@@ -44,9 +45,9 @@ The smoke test checks that the business services and supporting stateful compone
 
 For correctness gates:
 
-- `flashsales-deploy-pre.yml` contains the pre-deploy unit gates
-- `flashsales-deploy-pre.yml` also contains the pre-deploy Docker Compose integration gate based on `flashsale/docker-compose.yaml`
-- `flashsales-deploy-pre.yml` does not run Helm or modify the live k3s deployment
+- `.github/workflows/flashsales-deploy-pre.yml` in this repo contains the pre-deploy unit gates
+- `.github/workflows/flashsales-deploy-pre.yml` also contains the pre-deploy Docker Compose integration gate based on `docker-compose.yaml`
+- `.github/workflows/flashsales-deploy-pre.yml` does not run Helm or modify the live k3s deployment
 - `flashsales-deploy.yml` runs only after `flashsales-deploy-pre.yml` succeeds and performs the default k3s deploy
 - `flashsales-deploy-post.yml` runs only after `flashsales-deploy.yml` succeeds, first calling the reusable runtime consistency harness in `flashsales-consistency.yml`, then the reusable perf suite in `flashsales-perf-concurrency-suite.yml`
 - the pre-deploy gate now covers lifecycle, out-of-stock, duplicate-order, duplicate-webhook, timeout-race, DB migration compatibility, and API contract compatibility
@@ -91,6 +92,8 @@ Once forwarded, you can create users, products, and orders with the workload API
 ## Related Pages
 
 - [Flashsales harness engineering](flashsales-harness-engineering.md)
+- [Release manifest](../release/flashsale-release.yaml)
+- [Release manifest guide](../release/README.md)
 - [ADR 0001: Reduce hotspot order round-trips and default to pessimistic inventory locking](adrs/0001-hotspot-order-path-and-locking.md)
 - [ADR 0002: Move reservation confirm and cancel off the synchronous order path](adrs/0002-async-reservation-terminalization.md)
 - [ADR 0002-1: Move order confirmation off the synchronous create-order path](adrs/0002-1-order-confirmation-off-synchronous-path.md)
