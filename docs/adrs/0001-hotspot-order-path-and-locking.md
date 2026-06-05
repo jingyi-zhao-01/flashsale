@@ -82,8 +82,8 @@ If hotspot instability continues, the next areas to evaluate are:
 
 ## Related Changes
 
-- `flashsale/order-service/app/service.py`
-- `flashsale/product-service/app/models.py`
-- `flashsale/product-service/app/repositories.py`
-- `flashsale/product-service/app/in_memory_repository.py`
+- `application/flashsale/order-service/app/service.py`
+- `application/flashsale/product-service/app/models.py`
+- `application/flashsale/product-service/app/repositories.py`
+- `application/flashsale/product-service/app/in_memory_repository.py`
 - `charts/flashsales/values.yaml`

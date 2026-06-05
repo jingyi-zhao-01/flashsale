@@ -109,7 +109,7 @@ ADR 0001 已经去掉了一次同步商品查询，并把默认锁模式切到 `
 
 - queue owner：`order-service`
 - durable medium：`PostgreSQL`
-- queue implementation：`flashsale/order-service/queue.py`
+- queue implementation：`application/flashsale/order-service/queue.py`
 
 这样做的原因是：
 
@@ -197,12 +197,12 @@ D2 源码： [0002-async-reservation-terminalization.d2](diagrams/0002-async-res
 
 ## 相关变更
 
-- `flashsale/order-service/queue.py`
-- `flashsale/order-service/app/service.py`
-- `flashsale/order-service/app/repositories.py`
-- `flashsale/order-service/app/repository_postgres.py`
-- `flashsale/order-service/app/repository_postgres_terminalization.py`
-- `flashsale/product-service/app/main.py`
-- `flashsale/product-service/app/service.py`
-- `flashsale/product-service/app/repositories.py`
-- `flashsale/docs/adrs/0002-1-order-confirmation-off-synchronous-path.md`
+- `application/flashsale/order-service/queue.py`
+- `application/flashsale/order-service/app/service.py`
+- `application/flashsale/order-service/app/repositories.py`
+- `application/flashsale/order-service/app/repository_postgres.py`
+- `application/flashsale/order-service/app/repository_postgres_terminalization.py`
+- `application/flashsale/product-service/app/main.py`
+- `application/flashsale/product-service/app/service.py`
+- `application/flashsale/product-service/app/repositories.py`
+- `application/flashsale/docs/adrs/0002-1-order-confirmation-off-synchronous-path.md`
