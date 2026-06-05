@@ -46,14 +46,18 @@ def export_service_openapi(service_dir: Path, output_path: Path) -> None:
 def main() -> int:
     services = {
         REPO_ROOT
+        / "application"
         / "flashsale"
         / "order-service": REPO_ROOT
+        / "application"
         / "flashsale"
         / "order-service"
         / "openapi.yaml",
         REPO_ROOT
+        / "application"
         / "flashsale"
         / "product-service": REPO_ROOT
+        / "application"
         / "flashsale"
         / "product-service"
         / "openapi.yaml",

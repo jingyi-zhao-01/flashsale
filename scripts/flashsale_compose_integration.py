@@ -97,11 +97,15 @@ def main() -> int:
 
     if args.suite in {"product", "all"}:
         log("Running product-service integration tests")
-        run_tests(REPO_ROOT / "flashsale" / "product-service" / "tests" / "interagtion")
+        run_tests(
+            REPO_ROOT / "application" / "flashsale" / "product-service" / "tests" / "interagtion"
+        )
 
     if args.suite in {"order", "all"}:
         log("Running order-service integration tests")
-        run_tests(REPO_ROOT / "flashsale" / "order-service" / "tests" / "interagtion")
+        run_tests(
+            REPO_ROOT / "application" / "flashsale" / "order-service" / "tests" / "interagtion"
+        )
 
     log("Integration PASS")
     return 0
