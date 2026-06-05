@@ -2,6 +2,12 @@ name: Flashsales Deploy Pre
 
 on:
   workflow_dispatch:
+    inputs:
+      dispatch_homelab_cloud:
+        description: After flashsale predeploy and image build succeed, trigger homelab-cloud deploy.
+        required: false
+        type: boolean
+        default: true
   push:
     branches:
       - main
@@ -244,8 +250,10 @@ jobs:
       - build-and-push
     if: >-
       ${{
-        github.event_name == 'push' &&
-        github.ref == 'refs/heads/main' &&
+        (
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.dispatch_homelab_cloud)
+        ) &&
         needs.product-service-unit-gate.result == 'success' &&
         needs.order-service-unit-gate.result == 'success' &&
         needs.product-service-compose-integration-gate.result == 'success' &&
