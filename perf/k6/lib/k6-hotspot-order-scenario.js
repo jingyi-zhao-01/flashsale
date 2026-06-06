@@ -43,6 +43,7 @@ export function createHotspotOrderScenario({
     defaultReportIntervalMs,
   );
   const K6_HTTP_TIMEOUT = envString("K6_HTTP_TIMEOUT", defaultHttpTimeout);
+  const K6_TEARDOWN_TIMEOUT = envString("K6_TEARDOWN_TIMEOUT", "2m");
   const K6_P50_THRESHOLD_MS = envNumber(
     "K6_P50_THRESHOLD_MS",
     defaultP50ThresholdMs,
@@ -72,6 +73,7 @@ export function createHotspotOrderScenario({
       steady: STEADY,
       rampDown: RAMP_DOWN,
       targetVus: TARGET_VUS,
+      teardownTimeout: K6_TEARDOWN_TIMEOUT,
       thresholds: {
         http_req_failed: ["rate<0.05"],
         http_req_duration: [

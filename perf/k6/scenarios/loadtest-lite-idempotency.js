@@ -28,6 +28,7 @@ const RAMP_DOWN = envString("RAMP_DOWN", "10s");
 const TARGET_VUS = envNumber("TARGET_VUS", 5);
 const REPORT_INTERVAL_MS = envNumber("REPORT_INTERVAL_MS", 5000);
 const K6_HTTP_TIMEOUT = envString("K6_HTTP_TIMEOUT", "20s");
+const K6_TEARDOWN_TIMEOUT = envString("K6_TEARDOWN_TIMEOUT", "2m");
 const STOCK_PER_PRODUCT = envNumber("STOCK_PER_PRODUCT", 5);
 const K6_P50_THRESHOLD_MS = envNumber("K6_P50_THRESHOLD_MS", 1000);
 const K6_P90_THRESHOLD_MS = envNumber("K6_P90_THRESHOLD_MS", 1500);
@@ -53,6 +54,7 @@ export const options = buildRampOptions({
   steady: STEADY,
   rampDown: RAMP_DOWN,
   targetVus: TARGET_VUS,
+  teardownTimeout: K6_TEARDOWN_TIMEOUT,
   thresholds: {
     http_req_failed: ["rate<0.05"],
     http_req_duration: [

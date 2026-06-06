@@ -15,6 +15,7 @@ export function buildRampOptions({
   steady,
   rampDown,
   targetVus,
+  teardownTimeout,
   thresholds,
 }) {
   return {
@@ -23,6 +24,7 @@ export function buildRampOptions({
       { duration: steady, target: targetVus },
       { duration: rampDown, target: 0 },
     ],
+    ...(teardownTimeout ? { teardownTimeout } : {}),
     thresholds,
   };
 }
@@ -34,6 +36,7 @@ export function buildConstantArrivalRateOptions({
   preAllocatedVUs,
   maxVUs,
   setupTimeout,
+  teardownTimeout,
   thresholds,
 }) {
   return {
@@ -48,6 +51,7 @@ export function buildConstantArrivalRateOptions({
       },
     },
     ...(setupTimeout ? { setupTimeout } : {}),
+    ...(teardownTimeout ? { teardownTimeout } : {}),
     thresholds,
   };
 }

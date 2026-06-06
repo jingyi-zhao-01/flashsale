@@ -101,6 +101,7 @@ const PRODUCT_COUNT = Number(__ENV.PRODUCT_COUNT || selectedProfile.productCount
 const USER_COUNT = Number(__ENV.USER_COUNT || selectedProfile.userCount);
 const INITIAL_STOCK = Number(__ENV.INITIAL_STOCK || selectedProfile.initialStock);
 const SETUP_TIMEOUT = __ENV.K6_SETUP_TIMEOUT || "3m";
+const TEARDOWN_TIMEOUT = __ENV.K6_TEARDOWN_TIMEOUT || "3m";
 const PRE_ALLOCATED_VUS = Number(
   __ENV.PRE_ALLOCATED_VUS || Math.max(20, TARGET_TPS * 2),
 );
@@ -142,6 +143,7 @@ export const options = buildConstantArrivalRateOptions({
   preAllocatedVUs: PRE_ALLOCATED_VUS,
   maxVUs: MAX_VUS,
   setupTimeout: SETUP_TIMEOUT,
+  teardownTimeout: TEARDOWN_TIMEOUT,
   thresholds: {
     "http_req_duration{phase:traffic}": [
       `p(50)<${P50_MS}`,
