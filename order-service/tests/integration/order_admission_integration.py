@@ -191,18 +191,21 @@ class AdmissionGateIntegrationTest(unittest.TestCase):
 
     def test_payment_webhook_succeeds_when_gate_is_saturated(self) -> None:
         """Confirm/cancel path skips the admission gate entirely."""
-        o1 = self._create("webhook-order-1")
-        self.client.process_terminalizations()
-        confirmed = self.client.get_order(int(o1["id"]))
-        self.assertEqual(confirmed["status"], "confirmed")
+        reserve = self.client.reserve_product(product_id=self.product_id, quantity=1)
+        pending_order_id = self.client.seed_pending_order(
+            user_id=self.user_id,
+            product_id=self.product_id,
+            reservation_id=int(reserve["reservation_id"]),
+        )
 
         _redis_saturate(self.product_id, 2)
         replay = self.client.payment_webhook(
-            order_id=int(o1["id"]),
+            order_id=pending_order_id,
             event_id="evt-wh-replay",
             status="succeeded",
         )
         self.assertEqual(replay["status"], "confirmed")
+        self.assertEqual(replay["payment_status"], "succeeded")
 
     # ------------------------------------------------------------------
     # 6. process-terminalizations does NOT need an admission permit
