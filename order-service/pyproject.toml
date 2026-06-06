@@ -13,6 +13,7 @@ dependencies = [
   "opentelemetry-exporter-otlp-proto-http==1.42.1",
   "psycopg[binary]==3.2.3",
   "psycopg-pool==3.2.3",
+  "redis>=5.0",
 ]
 
 [build-system]
