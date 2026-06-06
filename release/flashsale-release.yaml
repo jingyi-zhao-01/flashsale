@@ -64,4 +64,4 @@ spec:
     concurrencyProfiles:
       smoke: smoke
       idempotencyLite: loadtest-lite-idempotency
-      hotspot10Tps: hotspot10
+      hotspot100Tps: hotspot100

@@ -16,8 +16,8 @@ spec:
         invocation:
           type: make
           target: concurrency-idempotency-lite
-      - id: hotspot10Tps
-        displayName: Hotspot 10 TPS
+      - id: hotspot100Tps
+        displayName: Hotspot 100 TPS
         invocation:
           type: make
-          target: concurrency-hotspot-10tps
+          target: concurrency-hotspot-100tps

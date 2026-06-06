@@ -33,8 +33,8 @@ const PROFILE_DEFAULTS = {
     userCount: 50,
     initialStock: 300,
   },
-  hotspot10: {
-    tps: 10,
+  hotspot100: {
+    tps: 100,
     duration: "3m",
     p50: 100,
     p90: 200,

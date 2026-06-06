@@ -1,4 +1,4 @@
-.PHONY: db-format db-validate db-generate db-migrate-status db-migrate-all concurrency-smoke concurrency-idempotency-lite concurrency-hotspot-10tps concurrency-baseline concurrency-stress100 concurrency-stress200 concurrency-hotspot
+.PHONY: db-format db-validate db-generate db-migrate-status db-migrate-all concurrency-smoke concurrency-idempotency-lite concurrency-hotspot-100tps concurrency-baseline concurrency-stress100 concurrency-stress200 concurrency-hotspot
 
 LOADTEST_WRAPPER := bash ./perf/scripts/loadtest-k6.sh
 CONCURRENCY_SCENARIO := ./perf/k6/scenarios/concurrency-test.js
@@ -26,8 +26,8 @@ concurrency-smoke:
 concurrency-idempotency-lite:
 	LOADTEST_SCRIPT=$(IDEMPOTENCY_SCENARIO) $(LOADTEST_WRAPPER) -e K6_P50_THRESHOLD_MS=2000 -e K6_P90_THRESHOLD_MS=3000 -e K6_P95_THRESHOLD_MS=2000
 
-concurrency-hotspot-10tps:
-	LOADTEST_SCRIPT=$(CONCURRENCY_SCENARIO) $(LOADTEST_WRAPPER) -e PROFILE=hotspot10 -e K6_P50_THRESHOLD_MS=2000 -e K6_P90_THRESHOLD_MS=3000 -e K6_P99_THRESHOLD_MS=5000 -e MAX_5XX_RATE=0
+concurrency-hotspot-100tps:
+	LOADTEST_SCRIPT=$(CONCURRENCY_SCENARIO) $(LOADTEST_WRAPPER) -e PROFILE=hotspot100 -e K6_P50_THRESHOLD_MS=2000 -e K6_P90_THRESHOLD_MS=3000 -e K6_P99_THRESHOLD_MS=5000 -e MAX_5XX_RATE=0
 
 concurrency-baseline:
 	LOADTEST_SCRIPT=$(CONCURRENCY_SCENARIO) $(LOADTEST_WRAPPER) -e PROFILE=baseline -e K6_P50_THRESHOLD_MS=2000 -e K6_P90_THRESHOLD_MS=3000 -e K6_P99_THRESHOLD_MS=5000 -e MAX_5XX_RATE=0.01

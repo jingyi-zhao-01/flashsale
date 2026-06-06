@@ -23,9 +23,9 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 - 5xx rate = 0
 - Oversell = 0
 
-1. `concurrency-hotspot-10tps`
+1. `concurrency-hotspot-100tps`
 
-- TPS: 10
+- TPS: 100
 - Duration: 3m
 - Hotspot mode: many users contend for one product.
 - P50 < 100ms
@@ -77,7 +77,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 From repo root:
 
 - `make concurrency-smoke`
-- `make concurrency-hotspot-10tps`
+- `make concurrency-hotspot-100tps`
 - `make concurrency-baseline`
 - `make concurrency-stress100`
 - `make concurrency-stress200`
@@ -89,7 +89,7 @@ Run in this order:
 
 1. Smoke
 2. Idempotency Lite
-3. Hotspot 10 TPS
+3. Hotspot 100 TPS
 4. Baseline
 5. Stress100
 6. Stress200

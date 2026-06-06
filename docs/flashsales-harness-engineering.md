@@ -116,7 +116,7 @@ When changing flashsales correctness or perf semantics, verify at least:
 ```bash
 bash ./application/flashsale/scripts/e2e-smoke.sh
 make concurrency-smoke
-make concurrency-hotspot-10tps
+make concurrency-hotspot-100tps
 make concurrency-baseline
 make concurrency-hotspot
 ```

@@ -1,0 +1,81 @@
+direction: down
+
+create_flow: {
+  label: "Create order: first attempt plus duplicate replay"
+  shape: sequence_diagram
+
+  client
+  order_api: "order-service API"
+  orders: "orders table"
+  product: "product-service"
+  tasks: "terminalization tasks"
+
+  first_attempt: {
+    label: "first logical purchase intent"
+    style.fill: "#DCFCE7"
+    style.stroke: "#16A34A"
+
+    client -> order_api: "1. POST /orders {idempotency_key=k1}"
+    order_api -> orders: "2. SELECT by idempotency_key=k1"
+    orders -> order_api: "3. miss"
+    order_api -> product: "4. reserve(product_id, qty)"
+    product -> order_api: "5. reservation_id + unit_price"
+    order_api -> orders: "6. INSERT pending order ON CONFLICT DO NOTHING"
+    orders -> order_api: "7. order_id=101"
+    order_api -> tasks: "8. INSERT confirm task event(s)"
+    tasks -> order_api: "9. queued"
+    order_api -> client: "10. 201 Created {order_id=101, status=pending}"
+  }
+
+  replay_shortcut: {
+    label: "same key replay becomes read-only"
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+
+    client -> order_api: "11. retry POST /orders {idempotency_key=k1}"
+    order_api -> orders: "12. SELECT by idempotency_key=k1"
+    orders -> order_api: "13. existing order_id=101"
+    order_api -> client: "14. return existing order; do not reserve again"
+  }
+}
+
+confirm_flow: {
+  label: "Payment confirm: first success plus duplicate replay"
+  shape: sequence_diagram
+
+  gateway: "payment webhook"
+  order_api: "order-service API"
+  orders: "orders table"
+  tasks: "terminalization tasks"
+  worker
+  product: "product-service"
+
+  first_confirm: {
+    label: "pending order converges once"
+    style.fill: "#DCFCE7"
+    style.stroke: "#16A34A"
+
+    gateway -> order_api: "1. POST /payments/webhook {order_id=101, event_id=e1}"
+    order_api -> orders: "2. SELECT order_id=101"
+    orders -> order_api: "3. status=pending, payment_status=pending"
+    order_api -> orders: "4. UPDATE order => confirmed / succeeded"
+    order_api -> tasks: "5. enqueue confirm intent if needed"
+    order_api -> gateway: "6. 200 OK {confirmed, succeeded}"
+    worker -> tasks: "7. claim queued confirm task"
+    tasks -> worker: "8. task_id + reservation_id"
+    worker -> product: "9. confirm(reservation_id)"
+    product -> worker: "10. success or already_confirmed"
+    worker -> tasks: "11. mark succeeded + append attempt event"
+  }
+
+  replay_confirm: {
+    label: "duplicate success signal is a no-op"
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+
+    gateway -> order_api: "12. replay same payment success"
+    order_api -> orders: "13. SELECT order_id=101"
+    orders -> order_api: "14. already confirmed / succeeded"
+    order_api -> gateway: "15. return existing order; do not change inventory"
+  }
+}
