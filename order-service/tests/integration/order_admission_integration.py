@@ -16,6 +16,7 @@ Gate assertions are verified via one of two strategies:
 # pylint: disable=duplicate-code
 
 import concurrent.futures
+import re
 import threading
 import unittest
 
@@ -85,7 +86,12 @@ class AdmissionGateIntegrationTest(unittest.TestCase):
         )
 
     def _try_create(self, idempotency_key: str) -> int:
-        """Return the HTTP status code for an order create attempt."""
+        """Return the HTTP status code for a single order create attempt.
+
+        Does NOT retry — a second request with the same idempotency key
+        would hit the idempotency replay path and return 201, masking the
+        real admission-gate decision.
+        """
         payload = {
             "user_id": self.user_id,
             "idempotency_key": idempotency_key,
@@ -96,14 +102,11 @@ class AdmissionGateIntegrationTest(unittest.TestCase):
                 "POST", f"{_BASE_ORDER_URL}/orders", payload, expected_status=201,
             )
             return 201
-        except AssertionError:
-            try:
-                request_json(
-                    "POST", f"{_BASE_ORDER_URL}/orders", payload, expected_status=429,
-                )
-                return 429
-            except AssertionError:
-                return 0
+        except AssertionError as exc:
+            match = re.search(r"HTTP (\d+)", str(exc))
+            if match:
+                return int(match.group(1))
+            return 0
 
     # ------------------------------------------------------------------
     # 1. serial orders — gate allows, releases, allows again
