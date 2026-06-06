@@ -21,6 +21,7 @@ USE_K8S_PORT_FORWARD="${USE_K8S_PORT_FORWARD:-false}"
 USER_LOCAL_PORT="${USER_LOCAL_PORT:-18080}"
 PRODUCT_LOCAL_PORT="${PRODUCT_LOCAL_PORT:-18081}"
 ORDER_LOCAL_PORT="${ORDER_LOCAL_PORT:-18082}"
+PERF_RESULTS_DIR="${PERF_RESULTS_DIR:-}"
 
 PORT_FORWARD_PIDS=()
 
@@ -159,7 +160,15 @@ wait_http "$USER_URL" "user-service"
 wait_http "$PRODUCT_URL" "product-service"
 wait_http "$BASE_URL" "order-service"
 
+K6_ARGS=()
+if [[ -n "$PERF_RESULTS_DIR" ]]; then
+  mkdir -p "$PERF_RESULTS_DIR"
+  K6_SUMMARY_EXPORT="${K6_SUMMARY_EXPORT:-$PERF_RESULTS_DIR/k6-summary.json}"
+  K6_ARGS+=(--summary-export "$K6_SUMMARY_EXPORT")
+fi
+
 k6 run \
+  "${K6_ARGS[@]}" \
   -e USER_URL="$USER_URL" \
   -e PRODUCT_URL="$PRODUCT_URL" \
   -e BASE_URL="$BASE_URL" \
