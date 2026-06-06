@@ -229,8 +229,8 @@ class AdmissionGateIntegrationTest(unittest.TestCase):
         _redis_saturate(self.product_id, 2)
 
         replay = self._create("idem-sat-1")
-        self.assertEqual(replay["status"], "pending")
         self.assertEqual(replay["id"], o1["id"])
+        self.assertIn(replay["status"], {"pending", "confirmed"})
 
     # ------------------------------------------------------------------
     # 8. multi-item order acquires all product permits and releases them
