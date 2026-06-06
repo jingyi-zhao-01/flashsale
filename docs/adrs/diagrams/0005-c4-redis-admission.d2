@@ -1,0 +1,117 @@
+# Flashsale C4 Container Diagram with Redis Admission Control
+# Render: d2 --theme=0 --pad=32 docs/adrs/diagrams/0005-c4-redis-admission.d2 docs/adrs/diagrams/0005-c4-redis-admission.svg
+
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    sketch: false
+    theme-id: 0
+  }
+}
+
+title: {
+  label: "Flashsale C4 Container — Redis Admission Control"
+  shape: text
+  style: {
+    bold: true
+    font-size: 28
+  }
+}
+
+client: {
+  label: "Customer / Load Generator"
+  shape: person
+  style: {
+    fill: "#EFF6FF"
+    stroke: "#2563EB"
+    stroke-width: 2
+  }
+}
+
+flashsale_system: {
+  label: "Flashsale System"
+  style: {
+    fill: "#F8FAFC"
+    stroke: "#CBD5E1"
+    stroke-width: 2
+  }
+
+  user_service: {
+    label: "user-service\nValidates and serves user records"
+    shape: rectangle
+    style: {
+      fill: "#ECFDF5"
+      stroke: "#059669"
+    }
+  }
+
+  order_service: {
+    label: "order-service\nOrder orchestration + admission gate"
+    shape: rectangle
+    style: {
+      fill: "#ECFDF5"
+      stroke: "#059669"
+      stroke-width: 3
+    }
+  }
+
+  admission_gate: {
+    label: "Reserve Admission Gate\nRedis INCR/DECR per product_id"
+    shape: rectangle
+    style: {
+      fill: "#FFF1F2"
+      stroke: "#E11D48"
+      stroke-dash: 3
+    }
+  }
+
+  product_service: {
+    label: "product-service\nOwns product stock and reservation lifecycle"
+    shape: rectangle
+    style: {
+      fill: "#ECFDF5"
+      stroke: "#059669"
+    }
+  }
+
+  postgres_db: {
+    label: "PostgreSQL\nusers / products+reservations / orders"
+    shape: cylinder
+    style: {
+      fill: "#FFFBEB"
+      stroke: "#D97706"
+    }
+  }
+
+  terminalization_queue: {
+    label: "Postgres Queue\norder_terminalization_tasks"
+    shape: queue
+    style: {
+      fill: "#FFF1F2"
+      stroke: "#E11D48"
+    }
+  }
+}
+
+redis: {
+  label: "Redis (Upstash)\nAdmission counters + TTL"
+  shape: cylinder
+  style: {
+    fill: "#FEF2F2"
+    stroke: "#DC2626"
+    stroke-width: 2
+  }
+}
+
+client -> flashsale_system.order_service: "POST /orders"
+flashsale_system.order_service -> flashsale_system.admission_gate: "acquire permit per product_id"
+flashsale_system.admission_gate -> redis: "INCR / DECR\nflashsale:reserve:admission:{id}"
+flashsale_system.order_service -> flashsale_system.user_service: "validate user"
+flashsale_system.order_service -> flashsale_system.product_service: "reserve / confirm / cancel"
+flashsale_system.user_service -> flashsale_system.postgres_db: "read users"
+flashsale_system.order_service -> flashsale_system.postgres_db: "persist orders + terminalization tasks"
+flashsale_system.order_service -> flashsale_system.terminalization_queue: "enqueue task"
+flashsale_system.product_service -> flashsale_system.postgres_db: "read / write products + reservations"
+flashsale_system.terminalization_queue -> flashsale_system.order_service: "worker claims tasks"

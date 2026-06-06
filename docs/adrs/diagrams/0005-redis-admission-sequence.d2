@@ -1,0 +1,102 @@
+# Redis Reserve Admission Control — Sequence Diagram
+# Render: d2 --theme=0 --pad=32 docs/adrs/diagrams/0005-redis-admission-sequence.d2 docs/adrs/diagrams/0005-redis-admission-sequence.svg
+
+direction: down
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    sketch: false
+    theme-id: 0
+  }
+}
+
+# ----- Participants -----
+client: Client {
+  shape: person
+  style.fill: "#e0e7ff"
+  style.stroke: "#4f46e5"
+}
+
+order-api: "order-service\nPOST /orders" {
+  style.fill: "#dbeafe"
+  style.stroke: "#2563eb"
+}
+
+redis-gate: "Redis Admission Gate\nINCR/DECR per product_id" {
+  style.fill: "#FEF2F2"
+  style.stroke: "#DC2626"
+}
+
+redis: "Redis\n(Upstash)" {
+  shape: cylinder
+  style.fill: "#fee2e2"
+  style.stroke: "#b91c1c"
+}
+
+product-service: "product-service\nPOST /reserve" {
+  style.fill: "#dcfce7"
+  style.stroke: "#16a34a"
+}
+
+order-db: "order-db\nPostgreSQL" {
+  shape: cylinder
+  style.fill: "#dbeafe"
+  style.stroke: "#2563eb"
+}
+
+# ----- Happy Path: Allowed -----
+client -> order-api: "1. POST /orders\n{user_id, product_id=42, qty=1}"
+order-api -> order-api: "2. validate user"
+order-api -> redis-gate: "3. acquire(42)"
+
+admission-happy: {
+  label: "Admission Gate — Allowed"
+  style.fill: "#DCFCE7"
+  style.stroke: "#16A34A"
+
+  redis-gate -> redis: "INCR flashsale:reserve:admission:42"
+  redis -> redis-gate: "counter=1 (≤ max_inflight=2)"
+  redis -> redis: "EXPIRE flashsale:reserve:admission:42 15"
+  redis-gate -> order-api: "permit acquired"
+}
+
+order-api -> product-service: "4. POST /reserve\n{product_id=42, qty=1}"
+product-service -> order-api: "5. 200 OK\n{reservation_id, unit_price}"
+order-api -> order-db: "6. INSERT order (status=pending)"
+order-db -> order-api: "7. OK"
+order-api -> client: "8. 201 Created"
+
+release-happy: {
+  label: "Permit Release (finally)"
+  style.fill: "#EFF6FF"
+  style.stroke: "#2563EB"
+
+  order-api -> redis-gate: "release(42)"
+  redis-gate -> redis: "DECR flashsale:reserve:admission:42"
+  redis -> redis-gate: "counter=0"
+}
+
+# ----- Rejection Path -----
+rejection-scenario: {
+  label: "Rejection Path — Over Limit"
+  style.fill: "#FEE2E2"
+  style.stroke: "#DC2626"
+
+  client2: "Client 3" {
+    shape: person
+    style.fill: "#e0e7ff"
+    style.stroke: "#4f46e5"
+  }
+
+  client2 -> order-api: "POST /orders {product_id=42, qty=1}"
+  order-api -> redis-gate: "acquire(42)"
+  redis-gate -> redis: "INCR flashsale:reserve:admission:42"
+  redis -> redis-gate: "counter=3 (> max_inflight=2)"
+  redis-gate -> redis: "DECR flashsale:reserve:admission:42"
+  redis-gate -> order-api: "REJECTED"
+  order-api -> client2: "429 Too Many Requests\n{detail: product reservation busy}"
+}
+
+# ----- Notes -----
+order-api.note: "• Confirm/cancel terminalization does NOT hold the permit\n• Permit held only during synchronous POST /orders reserve window\n• Redis key TTL = 15 s prevents leaked permits from crashes"

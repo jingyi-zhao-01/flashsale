@@ -10,6 +10,10 @@ from app.config import DATABASE_UNAVAILABLE_MESSAGE, ORDER_PENDING_TTL_SECONDS
 from app.domain.order import Order, OrderItem
 from flashsale_shared.observability import start_span
 from app.ports.product_reservation_client import ProductReservationClient
+from app.ports.reserve_admission_gate import (
+    NoOpReserveAdmissionGate,
+    ReserveAdmissionGate,
+)
 from app.ports.unit_of_work import UnitOfWork
 from app.ports.user_directory_client import UserDirectoryClient
 
@@ -22,10 +26,14 @@ class CreateOrderUseCase:
         uow: UnitOfWork,
         users: UserDirectoryClient,
         products: ProductReservationClient,
+        admission: ReserveAdmissionGate | None = None,
     ) -> None:
         self._uow = uow
         self._users = users
         self._products = products
+        self._admission: ReserveAdmissionGate = (
+            admission if admission is not None else NoOpReserveAdmissionGate()
+        )
 
     def create_order(self, command: CreateOrderCommand) -> Order:
         total_start = time.perf_counter()
@@ -53,11 +61,21 @@ class CreateOrderUseCase:
             user_validate_start = time.perf_counter()
             self._users.ensure_user_exists(command.user_id)
             user_validate_ms = (time.perf_counter() - user_validate_start) * 1000
+
+        product_ids = [pid for pid, _ in command.items]
+        admission_held: list[int] = []
         order_items: list[OrderItem] = []
         reservation_ids: list[int] = []
         total_amount = 0.0
 
         try:
+            with start_span(
+                "order-service",
+                "reserve admission gate",
+                attributes={"flashsale.product_ids": ",".join(str(p) for p in product_ids)},
+            ):
+                admission_held = self._admission.acquire(product_ids)
+
             for product_id, quantity in command.items:
                 with start_span(
                     "order-service",
@@ -111,6 +129,8 @@ class CreateOrderUseCase:
                 detail=DATABASE_UNAVAILABLE_MESSAGE,
             ) from exc
         finally:
+            if admission_held:
+                self._admission.release(admission_held)
             total_order_ms = (time.perf_counter() - total_start) * 1000
             order_logger.info(
                 "event=order_service_create_order_timing order_id=%s idempotency_hit=false "

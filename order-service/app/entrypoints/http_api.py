@@ -1,15 +1,19 @@
 import anyio
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Response, status
+from redis import Redis
+from redis.exceptions import RedisError
 
 from app.adapters.order_mapping import to_api_order
 from app.adapters.order_postgres_unit_of_work import OrderPostgresUnitOfWork
 from app.adapters.product_reservation_http_client import ProductReservationHttpClient
+from app.adapters.redis_reserve_admission_gate import RedisReserveAdmissionGate
 from app.adapters.user_http_client import UserHttpClient
 from app.application.commands import CreateOrderCommand, PaymentWebhookCommand
 from app.application.order_runtime import OrderRuntime
 from app.config import db_url
-from app.config import ORDER_CREATE_MAX_IN_FLIGHT
+from app.config import ORDER_CREATE_MAX_IN_FLIGHT, REDIS_URL, REDIS_TOKEN
+from app.ports.reserve_admission_gate import ReserveAdmissionGate
 from app.entrypoints.worker_loop import TerminalizationWorkerLoop
 from app.models import (
     ErrorResponse,
@@ -30,6 +34,15 @@ from flashsale_shared.reset_control import ResetController
 SERVICE_NAME = "order-service"
 
 
+def _redact_url(url: str) -> str:
+    """Return a safe-for-logging version of a Redis URL."""
+    if "@" in url:
+        prefix, rest = url.split("@", 1)
+        scheme = prefix.split("://")[0] if "://" in prefix else ""
+        return f"{scheme}://***@{rest}" if scheme else f"***@{rest}"
+    return url
+
+
 def build_http_api(
     run_background_worker: bool = True,
 ) -> tuple[FastAPI, object, OrderRuntime]:
@@ -39,10 +52,31 @@ def build_http_api(
     app.middleware("http")(create_request_logging_middleware(logger, SERVICE_NAME))
 
     uow = OrderPostgresUnitOfWork(db_url())
+    admission: ReserveAdmissionGate | None = None
+    if REDIS_URL:
+        try:
+            redis_client = Redis.from_url(REDIS_URL, password=REDIS_TOKEN or None)
+            redis_client.ping()
+            admission = RedisReserveAdmissionGate(redis_client)
+            logger.info(
+                "event=redis_admission_gate_initialized redis_url=%s max_inflight=%s",
+                _redact_url(REDIS_URL),
+                admission._max_inflight,
+            )
+        except (RedisError, OSError) as exc:
+            logger.warning(
+                "event=redis_admission_gate_unavailable redis_url=%s error=%s",
+                _redact_url(REDIS_URL),
+                exc,
+            )
+    else:
+        logger.info("event=redis_admission_gate_disabled reason=no_REDIS_URL")
+
     runtime = OrderRuntime(
         uow=uow,
         users=UserHttpClient(lambda: httpx.Client()),
         products=ProductReservationHttpClient(lambda: httpx.Client()),
+        admission=admission,
     )
     worker = TerminalizationWorkerLoop(runtime.process_tasks.process)
     orders_limiter = anyio.CapacityLimiter(ORDER_CREATE_MAX_IN_FLIGHT)
