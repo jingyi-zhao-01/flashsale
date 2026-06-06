@@ -3,7 +3,7 @@ from app.entrypoints.worker_loop import TerminalizationWorkerLoop
 
 
 def main() -> None:
-    _, _, runtime, _ = build_http_api(run_background_worker=False)
+    _, _, runtime = build_http_api(run_background_worker=False)
     worker = TerminalizationWorkerLoop(runtime.process_tasks.process)
     worker.start()
     try:
