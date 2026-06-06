@@ -1,260 +1,234 @@
-# ADR 0006: Make Order Creation, Confirmation, and Terminalization Replay-Safe
+# ADR 0006：让订单创建、确认与终态处理在重放下保持幂等安全
 
-- Status: Accepted
-- Date: 2026-06-06
+- 状态：Accepted
+- 日期：2026-06-06
 
-## Context
+## 背景
 
-Milestone 1 in [flashsale issue #5](https://github.com/jingyi-zhao-01/flashsale/issues/5)
-asks us to make order state transitions and idempotency behavior explicit, testable,
-and safe under replay.
+[flashsale issue #5](https://github.com/jingyi-zhao-01/flashsale/issues/5) 的 Milestone 1
+要求我们把订单状态迁移和幂等语义写清楚，并且让这些行为在 replay 场景下可测试、可解释、不会破坏库存或订单结果。
 
-The current flashsale architecture already has the right building blocks:
+当前 flashsale 架构其实已经具备了不少基础能力：
 
-- `orders.idempotency_key` exists
-- `orders_idempotency_key_idx` is unique when the key is not null
-- `CreateOrderUseCase` checks for an existing order before reserving stock
-- `OrderPostgresRepository` and `OrderPostgresUnitOfWork` also fence duplicates at
-  insert time with `INSERT ... ON CONFLICT DO NOTHING`
-- order status and payment status transitions are guarded in
-  `order-service/app/domain/state_machines.py`
-- reservation terminalization is already off the synchronous `/orders` path and runs
-  through durable `order_terminalization_tasks`
+- `orders.idempotency_key` 已存在
+- `orders_idempotency_key_idx` 对非空 key 提供唯一约束
+- `CreateOrderUseCase` 会在 reserve 之前先检查是否已存在同 key 订单
+- `OrderPostgresRepository` 和 `OrderPostgresUnitOfWork` 在写入时也会用
+  `INSERT ... ON CONFLICT DO NOTHING` 再挡一次重复写
+- 订单状态与支付状态的合法迁移，已经由
+  `order-service/app/domain/state_machines.py` 显式约束
+- reservation terminalization 已经移出同步 `/orders` 路径，并通过 durable 的
+  `order_terminalization_tasks` 来驱动
 
-What is still easy to lose in code review, tests, or incident response is the exact
-answer to these questions:
+但这些能力如果不写成明确的架构契约，在 code review、测试设计、事故复盘里还是很容易被误解。我们需要能稳定回答这些问题：
 
-- Why does replaying the same `POST /orders` not create a second logical order?
-- Why does replaying the same payment webhook not corrupt the final order state?
-- What final state do we expect if reserve succeeds but order persistence fails?
-- Which transitions are legal and which must remain impossible?
+- 为什么重复的 `POST /orders` 不会创建第二个逻辑订单？
+- 为什么重复的 payment webhook 不会把最终订单状态改坏？
+- 如果 reserve 成功了，但 order 持久化失败，最终应该收敛到什么状态？
+- 哪些状态迁移是合法的，哪些必须永远非法？
 
-This ADR makes those guarantees explicit and sets the design contract for the
-hardening work tracked in issue #5.
+这份 ADR 的目的，就是把这些保证写成清晰的设计约束，作为 issue #5 后续实现和测试的依据。
 
-## Decision
+## 决策
 
-We will treat idempotency in flashsale as a **state convergence guarantee**, not just
-as a cache optimization.
+我们把 flashsale 里的 idempotency 定义为一种**状态收敛保证**，而不只是 cache 层的优化技巧。
 
-The rule is:
+核心规则是：
 
-> A single logical purchase intent may be retried, replayed, or re-observed many
-> times, but it must converge to one durable order outcome and one inventory
-> outcome.
+> 同一个逻辑购买意图可以被 retry、replay、重复观察很多次，但它最终只能收敛到一个持久化订单结果，以及一个库存结果。
 
-That rule applies to three layers:
+这个规则同时作用在三层：
 
 1. `POST /orders`
-2. payment confirmation / webhook handling
-3. reservation terminalization retries
+2. payment confirm / webhook 处理
+3. reservation terminalization worker 的重试路径
 
-## Design
+## 设计
 
-### 1. Order creation is keyed by `idempotency_key`
+### 1. 订单创建以 `idempotency_key` 为外部幂等边界
 
-`POST /orders` uses `idempotency_key` as the external replay fence for one logical
-purchase intent.
+`POST /orders` 使用 `idempotency_key` 来代表一次逻辑购买意图，并把它作为对外的 replay fence。
 
-The create path has two guards:
+当前 create path 有两层保护：
 
-1. **read-before-work guard**
-   - `CreateOrderUseCase.create_order()` checks `get_by_idempotency_key()` before user
-     validation, admission control, and inventory reservation
-   - if an order already exists, the existing order is returned immediately
-2. **write-time uniqueness guard**
-   - the database keeps a unique partial index on `orders.idempotency_key`
-   - insert uses `ON CONFLICT (idempotency_key) ... DO NOTHING`
-   - if a concurrent writer wins first, the loser reads back the existing order and
-     returns it
+1. **先查再做**
+   - `CreateOrderUseCase.create_order()` 在用户校验、admission gate、库存预留之前，先查 `get_by_idempotency_key()`
+   - 如果订单已经存在，就直接返回已有订单，不再继续 reserve
+2. **数据库写入唯一性保护**
+   - 数据库对 `orders.idempotency_key` 维护唯一 partial index
+   - 插入语句使用 `ON CONFLICT (idempotency_key) ... DO NOTHING`
+   - 如果并发写入时别的请求先赢了，后到的请求会回读现有订单并返回
 
-This means a replayed `POST /orders` must not:
+因此，重复的 `POST /orders` **绝不能**：
 
-- reserve stock a second time
-- enqueue a second logical order
-- create a second order row
+- 再扣一次库存
+- 再创建一个新的逻辑订单
+- 再插入第二条订单行
 
-It may only:
+它唯一能做的事，是：
 
-- return the existing order row
+- 返回已经存在的那条订单
 
-### 2. Reservation success without order persistence must compensate immediately
+### 2. reserve 成功但订单持久化失败时，必须立即补偿
 
-Inventory reservation is not allowed to become an orphaned side effect.
+库存预留不能变成孤儿副作用。
 
-If `product-service reserve` succeeds but the order row cannot be persisted, the
-system must compensate by releasing all reservation ids collected during that create
-attempt.
+如果 `product-service reserve` 已经成功，但订单行无法持久化，那么系统必须把这次 create attempt 已拿到的所有 reservation id 立即释放掉。
 
-The final state for this failure mode is:
+这个失败场景的最终状态应该是：
 
-- no new durable order row
-- reservation released or cancelled in `product-service`
-- inventory returned
-- caller receives a failure response
+- 没有新的 durable order row
+- `product-service` 里的 reservation 被 release 或 cancel
+- 库存被归还
+- 调用方收到失败响应
 
-This boundary is more important than whether the failure came from:
+这个原则独立于失败原因本身。无论失败来自：
 
-- order insert failure
-- task enqueue failure
-- a transient database exception after reserve
+- order insert 失败
+- task enqueue 失败
+- reserve 之后出现的瞬时数据库异常
 
-For this milestone, the compensation rule is:
+这次 milestone 的补偿规则都是：
 
-> no durable order means no durable inventory hold may remain.
+> 只要没有 durable order，就不能留下 durable inventory hold。
 
-### 3. Order state transitions are explicit and closed
+### 3. 订单状态迁移必须是显式且封闭的
 
-Legal order transitions:
+合法的订单状态迁移如下：
 
-| Current | Allowed target |
+| 当前状态 | 允许迁移到 |
 |---|---|
-| `pending` | `confirmed`, `failed`, `cancelled`, `expired` |
+| `pending` | `confirmed`、`failed`、`cancelled`、`expired` |
 | `confirmed` | `confirmed` |
 | `failed` | `failed` |
 | `cancelled` | `cancelled` |
 | `expired` | `expired` |
 
-Legal payment status transitions:
+合法的支付状态迁移如下：
 
-| Current | Allowed target |
+| 当前状态 | 允许迁移到 |
 |---|---|
-| `pending` | `succeeded`, `cancelled` |
+| `pending` | `succeeded`、`cancelled` |
 | `succeeded` | `succeeded` |
 | `cancelled` | `cancelled` |
 
-Anything else is an illegal transition and must fail fast.
+除此之外的迁移都属于非法迁移，必须快速失败。
 
-Examples that must stay illegal:
+必须始终保持非法的例子包括：
 
 - `confirmed -> cancelled`
 - `expired -> confirmed`
 - `cancelled -> confirmed`
 - `succeeded -> cancelled`
 
-Self-transitions on terminal states are allowed because replay after success must be a
-no-op, not a new mutation.
+终态上的自环迁移是允许的，因为 replay 之后应该是 no-op，而不是制造新的业务变化。
 
-### 4. Payment confirmation is replay-safe by current order state
+### 4. 支付确认当前采用“按订单状态收敛”的幂等语义
 
-`POST /payments/webhook` must be safe when the same logical payment success is replayed.
+`POST /payments/webhook` 在接收到重复的支付成功信号时，必须保证结果安全。
 
-Decision rules:
+当前决策规则是：
 
-- if the order is already `confirmed / succeeded`, return the existing order and do
-  nothing else
-- if the order is already terminal in a non-success direction
-  (`expired`, `failed`, `cancelled`), return the existing order and do not revive it
-- if the order is still `pending`, transition it once toward success and enqueue the
-  required reservation confirmation work
+- 如果订单已经是 `confirmed / succeeded`，直接返回现有订单，不再做任何额外动作
+- 如果订单已经进入非成功终态，比如 `expired`、`failed`、`cancelled`，也直接返回现有订单，不允许 revive
+- 如果订单仍然是 `pending`，只允许它朝成功方向推进一次，并 enqueue 必要的 reservation confirm 工作
 
-For this milestone, replay safety on payment success is anchored on the current order
-state rather than on a separate persisted webhook-event ledger.
+也就是说，这一阶段 webhook replay-safe 的依据是**当前 order state**，而不是一张单独的 “processed webhook events” 去重账本。
 
-That is sufficient for the current local and compose-backed system because:
+这对当前本地环境和 compose 环境已经够用，因为：
 
-- the payment path is modeled as an internal success signal, not a third-party at-least-once queue
-- terminal states are explicit and immutable except for self-replay
-- duplicate success webhooks after the first success collapse into a read-only no-op
+- 当前 payment path 更像内部成功信号，不是第三方的 at-least-once event stream
+- 终态是显式的，而且终态只允许自环 replay，不允许被重新推进成别的状态
+- 第一次成功之后，重复 webhook 会自然塌缩成 read-only no-op
 
-If flashsale later integrates with a real external payment provider, we should add a
-persisted inbound event ledger keyed by provider event id. That is a likely follow-on,
-but it is not required to complete the guarantees in issue #5.
+如果未来 flashsale 真接入 Stripe、Adyen、PayPal 这类外部支付系统，那么应该追加一层按 provider `event_id` 去重的持久化事件账本。但那是后续增强项，不是完成 issue #5 当前目标的前置条件。
 
-### 5. Terminalization retries must be outcome-idempotent
+### 5. Terminalization 重试必须保证结果幂等
 
-`order_terminalization_tasks` are the durable retry boundary for confirm/cancel work.
+`order_terminalization_tasks` 是 confirm / cancel 路径上的 durable retry boundary。
 
-The worker guarantee is:
+worker 这层必须满足：
 
-- retrying the same logical confirm must not double-confirm inventory
-- retrying the same logical cancel must not double-release inventory
-- replaying work after the order has already converged must leave the final order
-  state unchanged
+- 同一个逻辑 confirm 被重试时，不能 double-confirm 库存
+- 同一个逻辑 cancel 被重试时，不能 double-release 库存
+- 在订单已经收敛之后再 replay 任务，也不能把最终订单结果改坏
 
-For this milestone, we treat replay safety here as a combination of:
+这一阶段我们把 worker replay-safe 看成以下几项能力的组合：
 
-- durable task rows
-- task attempt history in `order_terminalization_task_events`
-- idempotent downstream terminalization semantics
-- no-op order-state updates on already terminal orders
+- durable task row
+- `order_terminalization_task_events` 里的 attempt history
+- 下游 confirm / cancel 语义本身要支持幂等
+- 对已经终态的订单，状态更新必须退化成 no-op
 
-That means the worker may observe the same business intent more than once, but only
-the first successful pass is allowed to change the durable outcome.
+换句话说，worker 可以多次看到同一个业务意图，但只有第一次成功执行，才允许真正改变 durable outcome。
 
-## End-to-end invariants
+## 端到端不变量
 
-These are the invariants this ADR establishes.
+以下是不变量，也是这份 ADR 规定的最终契约。
 
-### Invariant A: one idempotency key maps to one logical order
+### 不变量 A：一个 `idempotency_key` 只能映射一个逻辑订单
 
-For a given `idempotency_key`, the system may return the same order many times, but it
-may not create two order ids.
+同一个 `idempotency_key` 可以被多次查询、多次 replay、多次返回，但不能创建两个不同的 `order_id`。
 
-### Invariant B: inventory consumption is single-effect
+### 不变量 B：库存消费只能产生一次业务效果
 
-For a given logical purchase intent:
+对于同一个逻辑购买意图：
 
-- stock may be reserved once
-- stock may be confirmed once
-- stock may be released once
+- stock 最多 reserve 一次
+- stock 最多 confirm 一次
+- stock 最多 release 一次
 
-Replay may re-check those operations, but not consume or release inventory a second
-time.
+Replay 可以再次检查这些操作，但不能让库存第二次被扣减或第二次被释放。
 
-### Invariant C: terminal states do not revive
+### 不变量 C：终态不能被 revive
 
-Once an order is terminal, late or duplicate success signals must not resurrect it
-into another terminal state.
+一旦订单进入终态，后到的或重复的成功信号都不能把它重新拉回另一种状态。
 
-### Invariant D: background retries cannot corrupt the already-visible result
+### 不变量 D：后台重试不能破坏用户已经看到的结果
 
-If a caller already observes a converged order, worker replay must preserve that
-visible outcome.
+如果调用方已经观察到一个收敛后的订单结果，那么之后的 worker replay 必须保持这个结果不变。
 
-## Final states for the important failure paths
+## 关键失败路径的最终收敛状态
 
-| Scenario | Final order state | Final inventory state |
+| 场景 | 最终订单状态 | 最终库存状态 |
 |---|---|---|
-| create succeeds, confirm later succeeds | `confirmed / succeeded` | reservation `confirmed` |
-| create succeeds, order expires before payment | `expired / cancelled` | reservation `cancelled` |
-| late payment arrives after expiry | stays `expired / cancelled` | stays `cancelled` |
-| reserve succeeds, order persist fails | no durable order | reservation released / cancelled |
-| duplicate `POST /orders` with same key | same order returned | no second reserve |
-| duplicate payment success after confirmation | same order returned | no second confirm |
-| worker retry after confirm already succeeded | same order remains terminal | no double confirm |
+| create 成功，后续 confirm 成功 | `confirmed / succeeded` | reservation `confirmed` |
+| create 成功，但订单在支付前过期 | `expired / cancelled` | reservation `cancelled` |
+| 订单过期后，晚到的 payment 成功再进入 | 保持 `expired / cancelled` | 保持 `cancelled` |
+| reserve 成功，但 order persist 失败 | 没有 durable order | reservation released / cancelled |
+| 同一个 key 的 `POST /orders` 重复提交 | 返回同一订单 | 不发生第二次 reserve |
+| 确认成功后重复 payment success | 返回同一订单 | 不发生第二次 confirm |
+| confirm 已成功后 worker 又 retry | 订单保持原终态 | 不发生 double confirm |
 
-## Consequences
+## 影响
 
-Benefits:
+收益：
 
-- issue #5 now has a concrete architectural contract instead of only test intent
-- order replay behavior is explainable during incidents
-- the legal transition boundary is shared across API, worker, and repository code
-- compensation after persistence failure is documented as a correctness requirement
+- issue #5 现在有了明确的架构契约，而不只是模糊的测试目标
+- 订单 replay 行为在事故复盘时可以被清楚解释
+- API、worker、repository 都能共享同一套合法迁移边界
+- reserve 成功但持久化失败后的补偿要求，被提升成了 correctness contract
 
-Trade-offs:
+代价与权衡：
 
-- `idempotency_key` becomes part of the public correctness contract for safe client replay
-- payment replay safety currently relies on state convergence, not yet on a separate
-  provider-event dedupe table
-- worker replay safety depends on downstream confirm/cancel semantics staying
-  idempotent as integrations evolve
+- `idempotency_key` 现在正式成为对外 correctness contract 的一部分
+- 当前 payment replay-safe 依赖的是状态收敛，而不是单独的 provider event dedupe ledger
+- worker replay-safe 的可靠性，仍依赖下游 confirm / cancel 语义未来继续保持幂等
 
-## Validation plan
+## 验证计划
 
-The milestone is complete only when the following are covered by tests or harnesses:
+只有在下面这些点都被测试或 harness 覆盖后，这个 milestone 才算完成：
 
-- replay the same `idempotency_key` three times and observe one logical order outcome
-- replay the same payment success three times and observe no state or inventory drift
-- replay terminalization processing three times and observe no double confirm/release
-- inject `reserve succeeded but order persist failed` and verify compensation
-- assert that illegal transitions fail:
+- 同一个 `idempotency_key` replay 三次，只出现一个逻辑订单结果
+- 同一个 payment success replay 三次，订单状态和库存都不漂移
+- terminalization 处理 replay 三次，不发生 double confirm / double release
+- 注入 `reserve succeeded but order persist failed`，验证补偿逻辑生效
+- 显式断言下面这些非法迁移会失败：
   - `confirmed -> cancelled`
   - `expired -> confirmed`
   - `cancelled -> confirmed`
 
-## Related code
+## 相关代码
 
 - `application/flashsale/order-service/app/application/create_order_use_case.py`
 - `application/flashsale/order-service/app/application/process_terminalization_task_use_case.py`
@@ -265,16 +239,15 @@ The milestone is complete only when the following are covered by tests or harnes
 - `application/flashsale/order-service/tests/unit/test_order_lifecycle.py`
 - `application/flashsale/order-service/tests/integration/order_compose_integration.py`
 
-## Diagram
+## 图
 
-The most useful visualization for this ADR is a **sequence diagram**, because issue #5
-is about replay on behavior boundaries rather than only static structure.
+这份 ADR 最合适的图是 **sequence diagram**，因为 issue #5 的核心不是静态结构，而是 replay 行为在不同边界上的收敛语义。
 
-The diagram below shows:
+下图展示了：
 
-- first create request
-- duplicate create replay short-circuit
-- first payment confirmation
-- duplicate confirmation replay short-circuit
+- 第一次 create order
+- duplicate create replay 的短路返回
+- 第一次 payment confirm
+- duplicate confirm replay 的短路返回
 
 ![Order idempotency and replay-safe terminalization](diagrams/0006-order-idempotency-sequence.svg)
