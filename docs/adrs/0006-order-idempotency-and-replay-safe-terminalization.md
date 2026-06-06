@@ -49,6 +49,48 @@
 
 `POST /orders` 使用 `idempotency_key` 来代表一次逻辑购买意图，并把它作为对外的 replay fence。
 
+#### `idempotency_key` 的设计原则
+
+`idempotency_key` 不应该表示“这张订单长什么样”，而应该表示“这一次下单意图”。
+
+推荐约束：
+
+- 每次用户真实点击一次下单，生成一个新的 key
+- 同一次请求的 retry / replay，必须复用同一个 key
+- 新的一次真实购买，即使商品和数量完全相同，也必须使用新的 key
+
+推荐生成方式：
+
+- 由客户端生成 `UUID` 或 `ULID`
+- 服务端只负责校验、持久化、回放已有结果
+
+不推荐的 key 设计：
+
+- `user_id:product_id`
+- `user_id:cart_hash`
+- `product_id:timestamp_second`
+
+这些设计的问题在于，它们会把本来合法的两次独立购买误判成同一次请求重放。
+
+#### 相同 key 重放时的请求一致性
+
+`idempotency_key` 的重放语义应该是：
+
+- 同一个 key 可以被重复提交
+- 但重复提交的请求，必须代表同一个业务意图
+
+因此，服务端除了按 `idempotency_key` 查单外，还应该把这个 key 和以下信息一起绑定：
+
+- `user_id`
+- 请求 payload 的稳定摘要，例如 `payload_hash`
+
+如果出现：
+
+- key 相同
+- 但 `user_id` 或 `payload_hash` 不同
+
+系统不应把它当成合法 replay，而应返回冲突错误，例如 `409 idempotency key reused with different payload`。
+
 当前 create path 有两层保护：
 
 1. **先查再做**
@@ -68,6 +110,68 @@
 它唯一能做的事，是：
 
 - 返回已经存在的那条订单
+
+#### Cache 在这里的角色
+
+cache 可以用来快速挡住同一个 `idempotency_key` 的 retry storm，但 cache 不是最终真相。
+
+推荐的 cache 语义是：
+
+- key: `idem:order:{idempotency_key}`
+- value:
+  - `status=processing|succeeded|failed`
+  - `order_id`
+  - `user_id`
+  - `payload_hash`
+  - `created_at`
+
+典型流程：
+
+1. 请求进入
+2. 先查 cache / Redis 是否已有 `idempotency_key`
+3. 若没有，用 `SET NX EX` 之类的方式占位成 `processing`
+4. 占位成功后，才继续真正的 `create order`
+5. 成功后，把结果写回 cache，例如 `status=succeeded, order_id=123`
+6. 后续同 key replay，直接返回已有结果
+
+这层的主要收益是：
+
+- 减少重复请求反复打到数据库
+- 在超时重试风暴下更快收敛
+- 给“正在处理中”的请求一个明确的可见状态
+
+#### 为什么 cache 不够，仍然必须保留数据库唯一约束
+
+cache 只能做快速挡板，不能代替数据库层的最终正确性。
+
+原因包括：
+
+- cache 可能过期
+- cache 可能丢失
+- 多实例并发下，仍可能出现 cache 未命中但数据库已写入的竞态
+
+因此，最终设计必须是两层：
+
+1. cache / Redis 负责快速去重与快速返回
+2. 数据库唯一约束负责最终兜底
+
+也就是说，flashsale 的正确做法不是“只靠 idempotency cache”，而是：
+
+> Redis 帮你更快地不重复做事，Postgres 保证你最终不可能重复落单。
+
+#### TTL 语义
+
+cache 上的 `idempotency_key` 应该有 TTL，但 TTL 只影响快速回放能力，不影响长期正确性。
+
+推荐理解是：
+
+- 较短 TTL，例如 `5m` 到 `30m`，足以覆盖客户端超时重试窗口
+- 即使 cache TTL 过期，数据库里的 `idempotency_key` 唯一约束仍然要继续保证不会重复创建订单
+
+因此：
+
+- cache TTL 是性能与用户体验参数
+- 数据库唯一约束才是 correctness contract
 
 ### 2. reserve 成功但订单持久化失败时，必须立即补偿
 
