@@ -43,10 +43,21 @@ class InMemoryUserRepository:
 
     def create_user(self, payload: UserCreate) -> UserOut:
         with self._lock:
+            existing = self._find_by_email(payload.email)
+            if existing is not None:
+                raise psycopg.errors.UniqueViolation(
+                    'duplicate key value violates unique constraint "users_email_key"'
+                )
             user_id = next(self._counter)
             user = UserOut(id=user_id, name=payload.name, email=payload.email)
             self._users[user_id] = user
             return user
+
+    def _find_by_email(self, email: str) -> UserOut | None:
+        for user in self._users.values():
+            if user.email == email:
+                return user
+        return None
 
     def get_user(self, user_id: int) -> UserOut | None:
         return self._users.get(user_id)

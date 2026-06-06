@@ -5,20 +5,13 @@ import unittest
 
 from fastapi import HTTPException
 
-psycopg_stub = types.ModuleType("psycopg")
-psycopg_rows_stub = types.ModuleType("psycopg.rows")
-psycopg_stub.connect = None
-psycopg_rows_stub.dict_row = object()
-sys.modules.setdefault("psycopg", psycopg_stub)
-sys.modules.setdefault("psycopg.rows", psycopg_rows_stub)
-
-import psycopg
-
-from app.models import ReserveRequest
-from app.service import ProductService
+# Stub psycopg_pool before app imports, since the real psycopg_pool
+# triggers a psycopg version conflict in this test environment.
+_psycopg_pool_stub = types.ModuleType("psycopg_pool")
+sys.modules["psycopg_pool"] = _psycopg_pool_stub
 
 
-class PoolTimeout(RuntimeError):
+class FakePoolTimeout(RuntimeError):
     pass
 
 
@@ -38,16 +31,17 @@ class FakeRepository:
         raise self._exc
 
 
-class ProductServiceErrorMappingTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        psycopg.errors = types.SimpleNamespace(
-            LockNotAvailable=FakeLockNotAvailable,
-            DeadlockDetected=FakeLockNotAvailable,
-            QueryCanceled=FakeQueryCanceled,
-        )
+def _fake_psycopg(**error_classes: type[Exception]) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        errors=types.SimpleNamespace(**error_classes),
+        Error=RuntimeError,
+    )
 
-    def _build_service(self, exc: Exception) -> ProductService:
+
+class ProductServiceErrorMappingTest(unittest.TestCase):
+    def _build_service(self, exc: Exception) -> "ProductService":
+        from app.service import ProductService
+
         return ProductService(
             repository=FakeRepository(exc),
             logger=logging.getLogger("test-product-service"),
@@ -55,33 +49,67 @@ class ProductServiceErrorMappingTest(unittest.TestCase):
         )
 
     def test_pool_timeout_maps_to_503(self) -> None:
-        service = self._build_service(PoolTimeout("pool timeout"))
+        import app.service, psycopg_pool
 
-        with self.assertRaises(HTTPException) as exc_info:
-            service.reserve_product(1, ReserveRequest(quantity=1))
+        _orig_psycopg = app.service.psycopg
+        try:
+            app.service.psycopg = _fake_psycopg()
+            psycopg_pool.PoolTimeout = FakePoolTimeout
 
-        self.assertEqual(exc_info.exception.status_code, 503)
-        self.assertEqual(
-            exc_info.exception.detail, "inventory database pool exhausted"
-        )
+            from app.models import ReserveRequest
+
+            service = self._build_service(FakePoolTimeout("pool timeout"))
+
+            with self.assertRaises(HTTPException) as exc_info:
+                service.reserve_product(1, ReserveRequest(quantity=1))
+
+            self.assertEqual(exc_info.exception.status_code, 503)
+            self.assertEqual(exc_info.exception.detail, "inventory database pool exhausted")
+        finally:
+            app.service.psycopg = _orig_psycopg
 
     def test_lock_contention_maps_to_409(self) -> None:
-        service = self._build_service(FakeLockNotAvailable("lock busy"))
+        import app.service, psycopg_pool
 
-        with self.assertRaises(HTTPException) as exc_info:
-            service.reserve_product(1, ReserveRequest(quantity=1))
+        _orig_psycopg = app.service.psycopg
+        try:
+            app.service.psycopg = _fake_psycopg(
+                LockNotAvailable=FakeLockNotAvailable,
+                DeadlockDetected=FakeLockNotAvailable,
+            )
+            psycopg_pool.PoolTimeout = FakePoolTimeout
 
-        self.assertEqual(exc_info.exception.status_code, 409)
-        self.assertEqual(exc_info.exception.detail, "inventory is busy, retry later")
+            from app.models import ReserveRequest
+
+            service = self._build_service(FakeLockNotAvailable("lock busy"))
+
+            with self.assertRaises(HTTPException) as exc_info:
+                service.reserve_product(1, ReserveRequest(quantity=1))
+
+            self.assertEqual(exc_info.exception.status_code, 409)
+            self.assertEqual(exc_info.exception.detail, "inventory is busy, retry later")
+        finally:
+            app.service.psycopg = _orig_psycopg
 
     def test_query_timeout_maps_to_504(self) -> None:
-        service = self._build_service(FakeQueryCanceled("timeout"))
+        import app.service, psycopg_pool
 
-        with self.assertRaises(HTTPException) as exc_info:
-            service.reserve_product(1, ReserveRequest(quantity=1))
+        _orig_psycopg = app.service.psycopg
+        try:
+            app.service.psycopg = _fake_psycopg(QueryCanceled=FakeQueryCanceled)
+            psycopg_pool.PoolTimeout = FakePoolTimeout
 
-        self.assertEqual(exc_info.exception.status_code, 504)
-        self.assertEqual(exc_info.exception.detail, "inventory request timed out")
+            from app.models import ReserveRequest
+
+            service = self._build_service(FakeQueryCanceled("timeout"))
+
+            with self.assertRaises(HTTPException) as exc_info:
+                service.reserve_product(1, ReserveRequest(quantity=1))
+
+            self.assertEqual(exc_info.exception.status_code, 504)
+            self.assertEqual(exc_info.exception.detail, "inventory request timed out")
+        finally:
+            app.service.psycopg = _orig_psycopg
 
 
 if __name__ == "__main__":

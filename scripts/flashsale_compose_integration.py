@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--suite",
-        choices=["order", "product", "all"],
+        choices=["order", "product", "user", "all"],
         default="all",
         help="Choose which integration test suite to execute.",
     )
@@ -97,15 +97,15 @@ def main() -> int:
 
     if args.suite in {"product", "all"}:
         log("Running product-service integration tests")
-        run_tests(
-            REPO_ROOT / "product-service" / "tests" / "interagtion"
-        )
+        run_tests(REPO_ROOT / "product-service" / "tests" / "integration")
 
     if args.suite in {"order", "all"}:
         log("Running order-service integration tests")
-        run_tests(
-            REPO_ROOT / "order-service" / "tests" / "interagtion"
-        )
+        run_tests(REPO_ROOT / "order-service" / "tests" / "integration")
+
+    if args.suite in {"user", "all"}:
+        log("Running user-service integration tests")
+        run_tests(REPO_ROOT / "user-service" / "tests" / "integration")
 
     log("Integration PASS")
     return 0

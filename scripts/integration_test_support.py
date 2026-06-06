@@ -113,6 +113,12 @@ class FlashsaleIntegrationClient:
         )
         return int(response["id"])
 
+    def get_user(self, user_id: int) -> dict[str, Any]:
+        return request_json("GET", f"{BASE_USER_URL}/users/{user_id}")
+
+    def list_users(self) -> list[dict[str, Any]]:
+        return request_json("GET", f"{BASE_USER_URL}/users")  # type: ignore[return-value]
+
     def create_product(self, *, name: str, price: float, stock: int) -> int:
         response = request_json(
             "POST",
@@ -124,6 +130,9 @@ class FlashsaleIntegrationClient:
 
     def get_product(self, product_id: int) -> dict[str, Any]:
         return request_json("GET", f"{BASE_PRODUCT_URL}/products/{product_id}")
+
+    def list_products(self) -> list[dict[str, Any]]:
+        return request_json("GET", f"{BASE_PRODUCT_URL}/products")  # type: ignore[return-value]
 
     def create_order(
         self,
@@ -147,6 +156,9 @@ class FlashsaleIntegrationClient:
 
     def get_order(self, order_id: int) -> dict[str, Any]:
         return request_json("GET", f"{BASE_ORDER_URL}/orders/{order_id}")
+
+    def list_orders(self) -> list[dict[str, Any]]:
+        return request_json("GET", f"{BASE_ORDER_URL}/orders")  # type: ignore[return-value]
 
     def payment_webhook(
         self, *, order_id: int, event_id: str, status: str
