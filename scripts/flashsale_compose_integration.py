@@ -16,7 +16,7 @@ from integration_test_support import (
     wait_for_stack,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def log(message: str) -> None:
@@ -97,15 +97,15 @@ def main() -> int:
 
     if args.suite in {"product", "all"}:
         log("Running product-service integration tests")
-        run_tests(REPO_ROOT / "flashsale" / "product-service" / "tests" / "integration")
+        run_tests(REPO_ROOT / "product-service" / "tests" / "integration")
 
     if args.suite in {"order", "all"}:
         log("Running order-service integration tests")
-        run_tests(REPO_ROOT / "flashsale" / "order-service" / "tests" / "integration")
+        run_tests(REPO_ROOT / "order-service" / "tests" / "integration")
 
     if args.suite in {"user", "all"}:
         log("Running user-service integration tests")
-        run_tests(REPO_ROOT / "flashsale" / "user-service" / "tests" / "integration")
+        run_tests(REPO_ROOT / "user-service" / "tests" / "integration")
 
     log("Integration PASS")
     return 0

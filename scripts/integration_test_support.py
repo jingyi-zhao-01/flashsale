@@ -9,11 +9,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterable
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = Path(
     os.environ.get(
         "COMPOSE_FILE",
-        str(REPO_ROOT / "application" / "flashsale" / "docker-compose.yaml"),
+        str(REPO_ROOT / "docker-compose.yaml"),
     )
 )
 BASE_USER_URL = os.environ.get("BASE_USER_URL", "http://127.0.0.1:18001")
