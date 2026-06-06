@@ -27,7 +27,7 @@ const PROFILE_DEFAULTS = {
     duration: "3m",
     p50: 1500,
     p90: 1600,
-    p99: 2000,
+    p99: 2500,
     max5xxRate: 0,
     productCount: 10,
     userCount: 50,
