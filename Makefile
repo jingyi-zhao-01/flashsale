@@ -1,8 +1,24 @@
-.PHONY: concurrency-smoke concurrency-idempotency-lite concurrency-hotspot-10tps concurrency-baseline concurrency-stress100 concurrency-stress200 concurrency-hotspot
+.PHONY: db-format db-validate db-generate db-migrate-status db-migrate-all concurrency-smoke concurrency-idempotency-lite concurrency-hotspot-10tps concurrency-baseline concurrency-stress100 concurrency-stress200 concurrency-hotspot
 
 LOADTEST_WRAPPER := bash ./perf/scripts/loadtest-k6.sh
 CONCURRENCY_SCENARIO := ./perf/k6/scenarios/concurrency-test.js
 IDEMPOTENCY_SCENARIO := ./perf/k6/scenarios/loadtest-lite-idempotency.js
+PRISMA_WRAPPER := uv run python3 ./scripts/run_prisma.py
+
+db-format:
+	$(PRISMA_WRAPPER) format
+
+db-validate:
+	$(PRISMA_WRAPPER) validate
+
+db-generate:
+	$(PRISMA_WRAPPER) generate
+
+db-migrate-status:
+	$(PRISMA_WRAPPER) migrate-status
+
+db-migrate-all:
+	$(PRISMA_WRAPPER) migrate-deploy
 
 concurrency-smoke:
 	LOADTEST_SCRIPT=$(CONCURRENCY_SCENARIO) $(LOADTEST_WRAPPER) -e PROFILE=smoke -e K6_P50_THRESHOLD_MS=1500 -e K6_P90_THRESHOLD_MS=1600 -e K6_P99_THRESHOLD_MS=2000 -e MAX_5XX_RATE=0

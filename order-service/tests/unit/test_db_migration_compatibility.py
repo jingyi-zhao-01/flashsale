@@ -53,6 +53,8 @@ class OrderServiceMigrationCompatibilityTest(unittest.TestCase):
             repository.init_db()
 
         joined = "\n".join(statements)
+        self.assertIn('CREATE SCHEMA IF NOT EXISTS "order_service"', joined)
+        self.assertIn('SET search_path TO "order_service", public', joined)
         self.assertIn("CREATE TABLE IF NOT EXISTS orders", joined)
         self.assertIn(
             "ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'pending'",

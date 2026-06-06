@@ -6,8 +6,9 @@ import psycopg
 import psycopg.errors  # noqa: F401  # ensure errors submodule is loaded
 from psycopg.rows import dict_row
 
-from .config import DB_POOL_MAX_SIZE, DB_POOL_MIN_SIZE, DB_POOL_TIMEOUT_SECONDS
 from flashsale_shared.db_pool import DatabasePool
+from flashsale_shared.postgres_schema import ensure_schema, set_search_path
+from .config import DB_POOL_MAX_SIZE, DB_POOL_MIN_SIZE, DB_POOL_TIMEOUT_SECONDS
 from .models import UserCreate, UserOut
 
 
@@ -68,8 +69,9 @@ class InMemoryUserRepository:
 
 
 class PostgresUserRepository:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, schema_name: str = "user_service") -> None:
         self._database_url = database_url
+        self._schema_name = schema_name
         self._pool = DatabasePool(
             database_url=database_url,
             min_size=DB_POOL_MIN_SIZE,
@@ -80,6 +82,8 @@ class PostgresUserRepository:
     def init_db(self) -> None:
         with psycopg.connect(self._database_url, autocommit=True) as conn:
             with conn.cursor() as cur:
+                ensure_schema(cur, self._schema_name)
+                set_search_path(cur, self._schema_name)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         id BIGSERIAL PRIMARY KEY,

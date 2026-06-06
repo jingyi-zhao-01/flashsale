@@ -10,7 +10,7 @@ The flashsale project uses two levels of testing:
    endpoint testing.
 
 2. **Integration tests** — `unittest`-based, run against a live Docker Compose stack with
-   real PostgreSQL databases and all three microservices. Tests exercise cross-service
+   one real PostgreSQL database, three service-owned PostgreSQL schemas, and all three microservices. Tests exercise cross-service
    HTTP calls end-to-end.
 
 ---
@@ -64,8 +64,8 @@ The flashsale project uses two levels of testing:
 ## Integration Test Coverage
 
 Integration tests run against a live Docker Compose stack with all three services
-(`user-service`, `product-service`, `order-service`) and their respective PostgreSQL
-databases. The stack is started via `docker compose up -d --build` and tests wait for
+(`user-service`, `product-service`, `order-service`) backed by a shared PostgreSQL
+database. The stack is started via `docker compose up -d --build` and tests wait for
 all services to report healthy before executing.
 
 Each test class resets all service state between tests via the `/admin/reset` endpoints.
@@ -74,10 +74,10 @@ Each test class resets all service state between tests via the `/admin/reset` en
 
 | Test | Scenario | Services Exercised |
 |---|---|---|
-| `test_create_and_get_user` | Create a user via POST `/users`, then GET `/users/{id}` to verify persistence | user-service → user-db |
-| `test_get_user_not_found_returns_404` | GET `/users/99999` returns 404 with "user not found" detail | user-service → user-db |
-| `test_create_duplicate_email_returns_409` | Two POST `/users` with same email; second returns 409 "user email already exists" | user-service → user-db |
-| `test_list_users_returns_all_created_users` | Create 3 users, GET `/users` returns all 3 with id, name, email fields | user-service → user-db |
+| `test_create_and_get_user` | Create a user via POST `/users`, then GET `/users/{id}` to verify persistence | user-service → flashsale-db (`user_service`) |
+| `test_get_user_not_found_returns_404` | GET `/users/99999` returns 404 with "user not found" detail | user-service → flashsale-db (`user_service`) |
+| `test_create_duplicate_email_returns_409` | Two POST `/users` with same email; second returns 409 "user email already exists" | user-service → flashsale-db (`user_service`) |
+| `test_list_users_returns_all_created_users` | Create 3 users, GET `/users` returns all 3 with id, name, email fields | user-service → flashsale-db (`user_service`) |
 | `test_invalid_email_returns_422` | POST `/users` with invalid email "not-an-email" returns 422 (FastAPI validation) | user-service |
 | `test_health_returns_ok` | GET `/health` returns `{"status": "ok", "service": "user-service"}` | user-service |
 | `test_ready_returns_ok` | GET `/ready` returns `{"status": "ok"}` | user-service |
@@ -90,14 +90,14 @@ Each test class resets all service state between tests via the `/admin/reset` en
 | `test_order_consumes_stock` | Create order for quantity 2, verify product stock reduced from 5 to 3 | product-service, order-service, user-service |
 | `test_duplicate_order_replay_does_not_change_stock` | Create order twice with same idempotency key, verify stock only consumed once | product-service, order-service, user-service |
 | `test_out_of_stock_order_returns_conflict` | Consume 2 stock, then order 4 (more than remaining 3), returns 409 conflict | product-service, order-service, user-service |
-| `test_list_products_returns_all_created_products` | GET `/products` returns list with id, name, stock fields for each product | product-service → product-db |
-| `test_get_product_not_found_returns_404` | GET `/products/99999` returns 404 "product not found" | product-service → product-db |
-| `test_reserve_product_reduces_available_stock` | POST `/products/{id}/reserve` for quantity 3 verifies stock goes from 5 to 2 | product-service → product-db |
-| `test_confirm_reservation_persists` | Reserve → confirm transitions reservation to "confirmed" status | product-service → product-db |
-| `test_cancel_reservation_restores_stock` | Reserve 2 → cancel → stock returns to 5 | product-service → product-db |
-| `test_expire_reservations_releases_stale_reservations` | Reserve → expire endpoint returns expired_count in response | product-service → product-db |
-| `test_confirm_nonexistent_reservation_returns_404` | POST `/reservations/99999/confirm` returns 404 | product-service → product-db |
-| `test_cancel_nonexistent_reservation_returns_404` | POST `/reservations/99999/cancel` returns 404 | product-service → product-db |
+| `test_list_products_returns_all_created_products` | GET `/products` returns list with id, name, stock fields for each product | product-service → flashsale-db (`product_service`) |
+| `test_get_product_not_found_returns_404` | GET `/products/99999` returns 404 "product not found" | product-service → flashsale-db (`product_service`) |
+| `test_reserve_product_reduces_available_stock` | POST `/products/{id}/reserve` for quantity 3 verifies stock goes from 5 to 2 | product-service → flashsale-db (`product_service`) |
+| `test_confirm_reservation_persists` | Reserve → confirm transitions reservation to "confirmed" status | product-service → flashsale-db (`product_service`) |
+| `test_cancel_reservation_restores_stock` | Reserve 2 → cancel → stock returns to 5 | product-service → flashsale-db (`product_service`) |
+| `test_expire_reservations_releases_stale_reservations` | Reserve → expire endpoint returns expired_count in response | product-service → flashsale-db (`product_service`) |
+| `test_confirm_nonexistent_reservation_returns_404` | POST `/reservations/99999/confirm` returns 404 | product-service → flashsale-db (`product_service`) |
+| `test_cancel_nonexistent_reservation_returns_404` | POST `/reservations/99999/cancel` returns 404 | product-service → flashsale-db (`product_service`) |
 
 ### Order Service Integration (`order_compose_integration.py`)
 
@@ -106,9 +106,9 @@ Each test class resets all service state between tests via the `/admin/reset` en
 | `test_create_order_confirms_payment` | Create order → process terminalizations → order status "confirmed", payment "succeeded" | order-service, product-service, user-service |
 | `test_duplicate_payment_webhook_is_idempotent` | Confirm order → replay payment webhook → status unchanged, still "confirmed"/"succeeded" | order-service, product-service, user-service |
 | `test_expired_order_stays_expired_after_late_payment` | Seed pending order → expire → late payment webhook → order stays "expired"/"cancelled" | order-service, product-service, user-service |
-| `test_list_orders_returns_all_created_orders` | Create 2 orders, GET `/orders` returns both with id, status, payment_status | order-service → order-db |
-| `test_get_order_not_found_returns_404` | GET `/orders/99999` returns 404 "order not found" | order-service → order-db |
-| `test_payment_webhook_on_nonexistent_order_returns_404` | POST `/payments/webhook` for order 99999 returns 404 | order-service → order-db |
+| `test_list_orders_returns_all_created_orders` | Create 2 orders, GET `/orders` returns both with id, status, payment_status | order-service → flashsale-db (`order_service`) |
+| `test_get_order_not_found_returns_404` | GET `/orders/99999` returns 404 "order not found" | order-service → flashsale-db (`order_service`) |
+| `test_payment_webhook_on_nonexistent_order_returns_404` | POST `/payments/webhook` for order 99999 returns 404 | order-service → flashsale-db (`order_service`) |
 | `test_order_with_invalid_user_returns_error` | Create order with user_id=99999 returns error (404 or 502) | order-service → user-service |
 | `test_order_with_invalid_product_returns_404` | Create order with product_id=99999 returns 404 | order-service → product-service |
 | `test_order_with_empty_items_returns_400` | Create order with empty items array returns 400 "order items cannot be empty" | order-service |

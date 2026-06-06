@@ -4,13 +4,16 @@ import unittest
 from unittest.mock import patch
 
 psycopg_stub = types.ModuleType("psycopg")
+psycopg_errors_stub = types.ModuleType("psycopg.errors")
 psycopg_rows_stub = types.ModuleType("psycopg.rows")
 psycopg_stub.connect = None
 psycopg_rows_stub.dict_row = object()
+psycopg_stub.errors = psycopg_errors_stub
 sys.modules.setdefault("psycopg", psycopg_stub)
+sys.modules.setdefault("psycopg.errors", psycopg_errors_stub)
 sys.modules.setdefault("psycopg.rows", psycopg_rows_stub)
 
-from app.repositories import PostgresProductRepository
+from app.repositories import PostgresUserRepository
 
 
 class _FakeCursor:
@@ -41,10 +44,10 @@ class _FakeConnection:
         return _FakeCursor(self._statements)
 
 
-class ProductServiceMigrationCompatibilityTest(unittest.TestCase):
-    def test_init_db_keeps_product_and_reservation_tables(self) -> None:
+class UserServiceMigrationCompatibilityTest(unittest.TestCase):
+    def test_init_db_creates_schema_and_users_table(self) -> None:
         statements: list[str] = []
-        repository = PostgresProductRepository("postgresql://example")
+        repository = PostgresUserRepository("postgresql://example")
 
         with patch(
             "app.repositories.psycopg.connect",
@@ -53,15 +56,10 @@ class ProductServiceMigrationCompatibilityTest(unittest.TestCase):
             repository.init_db()
 
         joined = "\n".join(statements)
-        self.assertIn('CREATE SCHEMA IF NOT EXISTS "product_service"', joined)
-        self.assertIn('SET search_path TO "product_service", public', joined)
-        self.assertIn("CREATE TABLE IF NOT EXISTS products", joined)
-        self.assertIn("CREATE TABLE IF NOT EXISTS reservations", joined)
-        self.assertIn(
-            "CREATE INDEX IF NOT EXISTS reservations_status_expires_at_idx",
-            joined,
-        )
-        self.assertIn("expires_at TIMESTAMPTZ NULL", joined)
+        self.assertIn('CREATE SCHEMA IF NOT EXISTS "user_service"', joined)
+        self.assertIn('SET search_path TO "user_service", public', joined)
+        self.assertIn("CREATE TABLE IF NOT EXISTS users", joined)
+        self.assertIn("email TEXT NOT NULL UNIQUE", joined)
 
 
 if __name__ == "__main__":

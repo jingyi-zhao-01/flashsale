@@ -1,0 +1,53 @@
+model Order {
+  id                    BigInt                          @id @default(autoincrement())
+  userId                BigInt                          @map("user_id")
+  createdAt             DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  totalAmount           Decimal                         @map("total_amount") @db.Decimal(12, 2)
+  status                String                          @default("pending") @db.Text
+  paymentStatus         String                          @default("pending") @map("payment_status") @db.Text
+  idempotencyKey        String?                         @map("idempotency_key") @db.Text
+  reservationIdsJson    Json                            @default(dbgenerated("'[]'::jsonb")) @map("reservation_ids_json") @db.JsonB
+  itemsJson             Json                            @map("items_json") @db.JsonB
+  terminalizationTasks  OrderTerminalizationTask[]
+  terminalizationEvents OrderTerminalizationTaskEvent[]
+
+  @@index([status, createdAt, id], map: "orders_pending_created_at_idx")
+  @@map("orders")
+  @@schema("order_service")
+}
+
+model OrderTerminalizationTask {
+  taskId        BigInt                          @id @default(autoincrement()) @map("task_id")
+  orderId       BigInt                          @map("order_id")
+  reservationId BigInt                          @map("reservation_id")
+  action        String                          @db.Text
+  status        String                          @default("queued") @db.Text
+  attemptCount  Int                             @default(0) @map("attempt_count")
+  availableAt   DateTime                        @default(now()) @map("available_at") @db.Timestamptz(6)
+  lastError     String?                         @map("last_error") @db.Text
+  createdAt     DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  order         Order                           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  events        OrderTerminalizationTaskEvent[]
+
+  @@index([status, availableAt, taskId], map: "order_terminalization_tasks_ready_idx")
+  @@map("order_terminalization_tasks")
+  @@schema("order_service")
+}
+
+model OrderTerminalizationTaskEvent {
+  eventId       BigInt                   @id @default(autoincrement()) @map("event_id")
+  taskId        BigInt                   @map("task_id")
+  orderId       BigInt                   @map("order_id")
+  reservationId BigInt                   @map("reservation_id")
+  action        String                   @db.Text
+  eventType     String                   @map("event_type") @db.Text
+  attemptCount  Int                      @default(0) @map("attempt_count")
+  lastError     String?                  @map("last_error") @db.Text
+  occurredAt    DateTime                 @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  task          OrderTerminalizationTask @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+  order         Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([occurredAt, eventType, action, taskId], map: "order_terminalization_task_events_lookup_idx")
+  @@map("order_terminalization_task_events")
+  @@schema("order_service")
+}

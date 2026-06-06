@@ -1,0 +1,8 @@
+model User {
+  id    BigInt @id @default(autoincrement())
+  name  String @db.Text
+  email String @unique(map: "users_email_key") @db.Text
+
+  @@map("users")
+  @@schema("user_service")
+}

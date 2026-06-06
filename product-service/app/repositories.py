@@ -14,6 +14,7 @@ from .config import (
     RESERVE_SQL_LOG_SLOW_MS,
 )
 from flashsale_shared.db_pool import DatabasePool
+from flashsale_shared.postgres_schema import ensure_schema, set_search_path
 from .in_memory_repository import InMemoryProductRepository, RESERVATION_TTL_SECONDS, seed_items
 from .locking import InventoryReserveEngine
 from .models import ProductCreate, ProductOut, ReservationOut
@@ -77,8 +78,9 @@ class ProductRepository(ABC):
         pass
 
 class PostgresProductRepository(ProductRepository):
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, schema_name: str = "product_service") -> None:
         self._database_url = database_url
+        self._schema_name = schema_name
         self._pool = DatabasePool(
             database_url=database_url,
             min_size=DB_POOL_MIN_SIZE,
@@ -106,6 +108,8 @@ class PostgresProductRepository(ProductRepository):
     def init_db(self) -> None:
         with psycopg.connect(self._database_url, autocommit=True) as conn:
             with conn.cursor() as cur:
+                ensure_schema(cur, self._schema_name)
+                set_search_path(cur, self._schema_name)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS products (
                         id BIGSERIAL PRIMARY KEY,

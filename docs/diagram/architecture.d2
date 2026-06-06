@@ -46,21 +46,27 @@ compose: "Flashsale — Docker Compose" {
     style.stroke-width: 2
   }
 
-  # ----- Databases -----
-  order-db: "order-db\n(PG 16)" {
-    shape: cylinder
-    style.fill: "#dbeafe"
+  # ----- Shared Database -----
+  flashsale-db: "flashsale-db\n(PostgreSQL 16)\nshared DATABASE_URL" {
+    style.fill: "#eff6ff"
     style.stroke: "#2563eb"
-  }
-  product-db: "product-db\n(PG 16)" {
-    shape: cylinder
-    style.fill: "#dcfce7"
-    style.stroke: "#16a34a"
-  }
-  user-db: "user-db\n(PG 16)" {
-    shape: cylinder
-    style.fill: "#fef3c7"
-    style.stroke: "#d97706"
+    style.stroke-width: 2
+
+    order-schema: "order_service schema\norders\nterminalization tasks\nterminalization events" {
+      shape: document
+      style.fill: "#dbeafe"
+      style.stroke: "#2563eb"
+    }
+    product-schema: "product_service schema\nproducts\nreservations" {
+      shape: document
+      style.fill: "#dcfce7"
+      style.stroke: "#16a34a"
+    }
+    user-schema: "user_service schema\nusers" {
+      shape: document
+      style.fill: "#fef3c7"
+      style.stroke: "#d97706"
+    }
   }
 
   # ----- Shared Library -----
@@ -70,9 +76,9 @@ compose: "Flashsale — Docker Compose" {
   }
 
   # Connections
-  order-service -> order-db: "SQL"
-  product-service -> product-db: "SQL / advisory lock"
-  user-service -> user-db: "SQL"
+  order-service -> flashsale-db.order-schema: "SQL\nsearch_path=order_service"
+  product-service -> flashsale-db.product-schema: "SQL / advisory lock\nsearch_path=product_service"
+  user-service -> flashsale-db.user-schema: "SQL\nsearch_path=user_service"
 
   order-service -> user-service: "HTTP\nGET /users/{id}"
   order-service -> product-service: "HTTP\nPOST /reserve\nPOST /confirm"

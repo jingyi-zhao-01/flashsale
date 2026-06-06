@@ -27,14 +27,16 @@ from app.domain.statuses import (
 )
 from flashsale_shared.db_pool import DatabasePool
 from flashsale_shared.observability import start_span
+from flashsale_shared.postgres_schema import ensure_schema, set_search_path
 
 ROW_FACTORY = cast(Any, dict_row)
 db_logger = logging.getLogger("order-service.db")
 
 
 class OrderPostgresUnitOfWork:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, schema_name: str = "order_service") -> None:
         self._database_url = database_url
+        self._schema_name = schema_name
         self._pool = DatabasePool(
             database_url=database_url,
             min_size=DB_POOL_MIN_SIZE,
@@ -47,6 +49,8 @@ class OrderPostgresUnitOfWork:
     def init_db(self) -> None:
         with psycopg.connect(self._database_url, autocommit=True) as conn:
             with conn.cursor() as cur:
+                ensure_schema(cur, self._schema_name)
+                set_search_path(cur, self._schema_name)
                 ensure_order_tables(cur)
                 ensure_terminalization_tables(cur)
 

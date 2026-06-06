@@ -109,21 +109,39 @@ data_plane: {
     stroke-width: 2
   }
 
-  order_db: {
-    label: "PostgreSQL\norders + terminalization tasks"
-    shape: cylinder
+  flashsale_db: {
+    label: "flashsale-db\nPostgreSQL 16\nshared DATABASE_URL"
     style: {
       fill: "#1E3A8A"
       stroke: "#F59E0B"
+      stroke-width: 2
     }
-  }
 
-  product_db: {
-    label: "PostgreSQL\nproducts + reservations"
-    shape: cylinder
-    style: {
-      fill: "#1E3A8A"
-      stroke: "#F59E0B"
+    user_schema: {
+      label: "user_service schema\nusers"
+      shape: document
+      style: {
+        fill: "#1D4ED8"
+        stroke: "#FBBF24"
+      }
+    }
+
+    product_schema: {
+      label: "product_service schema\nproducts + reservations"
+      shape: document
+      style: {
+        fill: "#1D4ED8"
+        stroke: "#FBBF24"
+      }
+    }
+
+    order_schema: {
+      label: "order_service schema\norders + terminalization tasks"
+      shape: document
+      style: {
+        fill: "#1D4ED8"
+        stroke: "#FBBF24"
+      }
     }
   }
 
@@ -179,13 +197,13 @@ edge_plane.ingress -> application_plane.order_service: "POST /orders"
 application_plane.order_service -> application_plane.user_service: "validate user"
 application_plane.order_service -> application_plane.product_service: "reserve inventory"
 
-application_plane.user_service -> data_plane.order_db: "user lookup"
-application_plane.product_service -> data_plane.product_db: "reserve / confirm / cancel"
-application_plane.order_service -> data_plane.order_db: "persist order state"
+application_plane.user_service -> data_plane.flashsale_db.user_schema: "SQL\nsearch_path=user_service"
+application_plane.product_service -> data_plane.flashsale_db.product_schema: "SQL / advisory lock\nsearch_path=product_service"
+application_plane.order_service -> data_plane.flashsale_db.order_schema: "SQL\nsearch_path=order_service"
 application_plane.order_service -> async_plane.reservation_outbox: "enqueue confirm / cancel intent"
 async_plane.reservation_outbox -> async_plane.terminalization_worker: "claim task"
 async_plane.terminalization_worker -> application_plane.product_service: "confirm / cancel reservation"
-async_plane.terminalization_worker -> data_plane.order_db: "mark task complete / retry"
+async_plane.terminalization_worker -> data_plane.flashsale_db.order_schema: "mark task complete / retry"
 
 application_plane.order_service -> data_plane.redis: "optional cache / throttle"
 application_plane.order_service -> data_plane.rabbitmq: "future async integrations"

@@ -42,7 +42,7 @@ So today the split is:
 | `product-service` | Product catalog and stock management |
 | `order-service` | Order creation, user validation, and stock reservation |
 
-The workload also includes self-hosted PostgreSQL, Redis, and RabbitMQ in the chart.
+The workload also includes one self-hosted PostgreSQL instance, plus Redis and RabbitMQ in the chart. The three services share the same database endpoint and isolate their tables with PostgreSQL schemas (`user_service`, `product_service`, `order_service`).
 
 ## Deploy to VPS
 
@@ -123,6 +123,8 @@ Once forwarded, you can create users, products, and orders with the workload API
 - [ADR 0001: Reduce hotspot order round-trips and default to pessimistic inventory locking](adrs/0001-hotspot-order-path-and-locking.md)
 - [ADR 0002: Move reservation confirm and cancel off the synchronous order path](adrs/0002-async-reservation-terminalization.md)
 - [ADR 0002-1: Move order confirmation off the synchronous create-order path](adrs/0002-1-order-confirmation-off-synchronous-path.md)
+- [ADR 0003: Isolate order worker and introduce per-service DB pools](adrs/0003-isolate-order-worker-and-introduce-per-service-db-pools.md)
+- [ADR 0004: Manage flashsale schema and migrations with Python Prisma](adrs/0004-manage-flashsale-schema-and-migrations-with-python-prisma.md)
 - [Flashsale architecture](../architecture.md)
 - [Repository overview](../../docs/overview.md)
 - [Operations and tooling](../../docs/operations.md)
