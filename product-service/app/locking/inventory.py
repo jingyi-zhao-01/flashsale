@@ -122,6 +122,79 @@ class InventoryReserveEngine:
             raise RuntimeError("reservation persistence failed")
         return reservation
 
+    def _log_stage_timing(
+        self,
+        *,
+        stage: str,
+        product_id: int,
+        quantity: int,
+        retry_index: int,
+        elapsed_ms: float,
+        result: str,
+    ) -> None:
+        lock_logger.info(
+            "event=product_service_reserve_stage lock_mode=%s stage=%s product_id=%s quantity=%s retry_index=%s elapsed_ms=%.2f threshold_ms=%.2f result=%s",
+            self._lock_mode,
+            stage,
+            product_id,
+            quantity,
+            retry_index,
+            elapsed_ms,
+            self._slow_ms_threshold,
+            result,
+        )
+        if elapsed_ms >= self._slow_ms_threshold:
+            lock_logger.warning(
+                "event=product_service_reserve_stage_slow lock_mode=%s stage=%s product_id=%s quantity=%s retry_index=%s elapsed_ms=%.2f threshold_ms=%.2f result=%s",
+                self._lock_mode,
+                stage,
+                product_id,
+                quantity,
+                retry_index,
+                elapsed_ms,
+                self._slow_ms_threshold,
+                result,
+            )
+
+    def _log_attempt_timing(
+        self,
+        *,
+        product_id: int,
+        quantity: int,
+        retry_index: int,
+        result: str,
+        connection_acquire_ms: float,
+        update_ms: float,
+        reservation_insert_ms: float,
+        commit_ms: float,
+        total_attempt_ms: float,
+    ) -> None:
+        lock_logger.info(
+            "event=product_service_reserve_attempt lock_mode=%s product_id=%s quantity=%s retry_index=%s result=%s connection_acquire_ms=%.2f update_ms=%.2f reservation_insert_ms=%.2f commit_ms=%.2f total_attempt_ms=%.2f threshold_ms=%.2f",
+            self._lock_mode,
+            product_id,
+            quantity,
+            retry_index,
+            result,
+            connection_acquire_ms,
+            update_ms,
+            reservation_insert_ms,
+            commit_ms,
+            total_attempt_ms,
+            self._slow_ms_threshold,
+        )
+        if total_attempt_ms >= self._slow_ms_threshold:
+            lock_logger.warning(
+                "event=product_service_reserve_attempt_slow lock_mode=%s product_id=%s quantity=%s retry_index=%s result=%s total_attempt_ms=%.2f threshold_ms=%.2f",
+                self._lock_mode,
+                product_id,
+                quantity,
+                retry_index,
+                result,
+                total_attempt_ms,
+                self._slow_ms_threshold,
+            )
+
     def _reserve_pessimistic(
         self, product_id: int, quantity: int
     ) -> dict[str, object] | None:
@@ -445,73 +518,257 @@ class InventoryReserveEngine:
         reserve_start = time.perf_counter()
         try:
             for retry_index in range(self._retry_limit):
-                with self._pool.connection(
-                    autocommit=False, row_factory=dict_row
-                ) as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("SET LOCAL lock_timeout = '1s'")
-                        cur.execute("SET LOCAL statement_timeout = '3s'")
-                        cur.execute(
-                            """
-                            UPDATE products
-                            SET stock = stock - %s
-                            WHERE id = %s AND stock >= %s
-                            RETURNING price
-                            """,
-                            (quantity, product_id, quantity),
-                        )
-                        updated = cur.fetchone()
-                        if updated:
-                            reservation = self._insert_reservation(
-                                cur,
-                                product_id,
-                                quantity,
-                                updated["price"],
-                                reservation_ttl_seconds,
+                attempt_start = time.perf_counter()
+                attempt_result = "retry"
+                connection_acquire_ms = 0.0
+                update_ms = 0.0
+                reservation_insert_ms = 0.0
+                commit_ms = 0.0
+                with start_span(
+                    "product-service",
+                    "inventory reserve attempt",
+                    kind=SpanKind.INTERNAL,
+                    attributes={
+                        "flashsale.product_id": product_id,
+                        "flashsale.quantity": quantity,
+                        "flashsale.lock_mode": self._lock_mode,
+                        "flashsale.retry_index": retry_index,
+                    },
+                ):
+                    connection_start = time.perf_counter()
+                    with start_span(
+                        "product-service",
+                        "inventory connection acquire",
+                        kind=SpanKind.INTERNAL,
+                        attributes={
+                            "flashsale.product_id": product_id,
+                            "flashsale.quantity": quantity,
+                            "flashsale.retry_index": retry_index,
+                        },
+                    ):
+                        with self._pool.connection(
+                            autocommit=False, row_factory=dict_row
+                        ) as conn:
+                            connection_acquire_ms = (
+                                time.perf_counter() - connection_start
+                            ) * 1000
+                            self._log_stage_timing(
+                                stage="connection_acquire",
+                                product_id=product_id,
+                                quantity=quantity,
+                                retry_index=retry_index,
+                                elapsed_ms=connection_acquire_ms,
+                                result="acquired",
                             )
-                            conn.commit()
-                            if retry_index > 0:
-                                elapsed_ms = (
-                                    time.perf_counter() - reserve_start
-                                ) * 1000
-                                lock_logger.info(
-                                    "event=optimistic_retry_succeeded lock_mode=optimistic product_id=%s quantity=%s retries_used=%s elapsed_ms=%.2f",
+                            with conn.cursor() as cur:
+                                cur.execute("SET LOCAL lock_timeout = '1s'")
+                                cur.execute("SET LOCAL statement_timeout = '3s'")
+                                update_start = time.perf_counter()
+                                with start_span(
+                                    "product-service",
+                                    "inventory stock update",
+                                    kind=SpanKind.INTERNAL,
+                                    attributes={
+                                        "flashsale.product_id": product_id,
+                                        "flashsale.quantity": quantity,
+                                        "flashsale.retry_index": retry_index,
+                                    },
+                                ) as update_span:
+                                    cur.execute(
+                                        """
+                                        UPDATE products
+                                        SET stock = stock - %s
+                                        WHERE id = %s AND stock >= %s
+                                        RETURNING price
+                                        """,
+                                        (quantity, product_id, quantity),
+                                    )
+                                    updated = cur.fetchone()
+                                    update_span.set_attribute(
+                                        "flashsale.updated", bool(updated)
+                                    )
+                                update_ms = (time.perf_counter() - update_start) * 1000
+                                self._log_stage_timing(
+                                    stage="stock_update",
+                                    product_id=product_id,
+                                    quantity=quantity,
+                                    retry_index=retry_index,
+                                    elapsed_ms=update_ms,
+                                    result="updated" if updated else "not_updated",
+                                )
+                                if updated:
+                                    insert_start = time.perf_counter()
+                                    with start_span(
+                                        "product-service",
+                                        "inventory reservation insert",
+                                        kind=SpanKind.INTERNAL,
+                                        attributes={
+                                            "flashsale.product_id": product_id,
+                                            "flashsale.quantity": quantity,
+                                            "flashsale.retry_index": retry_index,
+                                        },
+                                    ):
+                                        reservation = self._insert_reservation(
+                                            cur,
+                                            product_id,
+                                            quantity,
+                                            updated["price"],
+                                            reservation_ttl_seconds,
+                                        )
+                                    reservation_insert_ms = (
+                                        time.perf_counter() - insert_start
+                                    ) * 1000
+                                    self._log_stage_timing(
+                                        stage="reservation_insert",
+                                        product_id=product_id,
+                                        quantity=quantity,
+                                        retry_index=retry_index,
+                                        elapsed_ms=reservation_insert_ms,
+                                        result="inserted",
+                                    )
+
+                                    commit_start = time.perf_counter()
+                                    with start_span(
+                                        "product-service",
+                                        "inventory reserve commit",
+                                        kind=SpanKind.INTERNAL,
+                                        attributes={
+                                            "flashsale.product_id": product_id,
+                                            "flashsale.quantity": quantity,
+                                            "flashsale.retry_index": retry_index,
+                                        },
+                                    ):
+                                        conn.commit()
+                                    commit_ms = (time.perf_counter() - commit_start) * 1000
+                                    self._log_stage_timing(
+                                        stage="reserve_commit",
+                                        product_id=product_id,
+                                        quantity=quantity,
+                                        retry_index=retry_index,
+                                        elapsed_ms=commit_ms,
+                                        result="committed",
+                                    )
+                                    attempt_result = "reserved"
+                                    self._log_attempt_timing(
+                                        product_id=product_id,
+                                        quantity=quantity,
+                                        retry_index=retry_index,
+                                        result=attempt_result,
+                                        connection_acquire_ms=connection_acquire_ms,
+                                        update_ms=update_ms,
+                                        reservation_insert_ms=reservation_insert_ms,
+                                        commit_ms=commit_ms,
+                                        total_attempt_ms=(
+                                            time.perf_counter() - attempt_start
+                                        )
+                                        * 1000,
+                                    )
+                                    if retry_index > 0:
+                                        elapsed_ms = (
+                                            time.perf_counter() - reserve_start
+                                        ) * 1000
+                                        lock_logger.info(
+                                            "event=optimistic_retry_succeeded lock_mode=optimistic product_id=%s quantity=%s retries_used=%s elapsed_ms=%.2f",
+                                            product_id,
+                                            quantity,
+                                            retry_index,
+                                            elapsed_ms,
+                                        )
+                                    return reservation
+
+                                read_start = time.perf_counter()
+                                with start_span(
+                                    "product-service",
+                                    "inventory stock read after conflict",
+                                    kind=SpanKind.INTERNAL,
+                                    attributes={
+                                        "flashsale.product_id": product_id,
+                                        "flashsale.quantity": quantity,
+                                        "flashsale.retry_index": retry_index,
+                                    },
+                                ):
+                                    cur.execute(
+                                        """
+                                        SELECT stock
+                                        FROM products
+                                        WHERE id = %s
+                                        """,
+                                        (product_id,),
+                                    )
+                                    row = cur.fetchone()
+                                read_ms = (time.perf_counter() - read_start) * 1000
+                                self._log_stage_timing(
+                                    stage="stock_read_after_conflict",
+                                    product_id=product_id,
+                                    quantity=quantity,
+                                    retry_index=retry_index,
+                                    elapsed_ms=read_ms,
+                                    result="missing" if not row else "loaded",
+                                )
+                                if not row:
+                                    attempt_result = "missing"
+                                    self._log_attempt_timing(
+                                        product_id=product_id,
+                                        quantity=quantity,
+                                        retry_index=retry_index,
+                                        result=attempt_result,
+                                        connection_acquire_ms=connection_acquire_ms,
+                                        update_ms=update_ms,
+                                        reservation_insert_ms=reservation_insert_ms,
+                                        commit_ms=commit_ms,
+                                        total_attempt_ms=(
+                                            time.perf_counter() - attempt_start
+                                        )
+                                        * 1000,
+                                    )
+                                    return None
+
+                                current_stock = int(row["stock"])
+                                if current_stock < quantity:
+                                    attempt_result = "insufficient_stock"
+                                    self._log_attempt_timing(
+                                        product_id=product_id,
+                                        quantity=quantity,
+                                        retry_index=retry_index,
+                                        result=attempt_result,
+                                        connection_acquire_ms=connection_acquire_ms,
+                                        update_ms=update_ms,
+                                        reservation_insert_ms=reservation_insert_ms,
+                                        commit_ms=commit_ms,
+                                        total_attempt_ms=(
+                                            time.perf_counter() - attempt_start
+                                        )
+                                        * 1000,
+                                    )
+                                    lock_logger.warning(
+                                        "event=insufficient_stock lock_mode=optimistic product_id=%s quantity=%s current_stock=%s",
+                                        product_id,
+                                        quantity,
+                                        current_stock,
+                                    )
+                                    raise ValueError("insufficient stock")
+
+                                self._log_attempt_timing(
+                                    product_id=product_id,
+                                    quantity=quantity,
+                                    retry_index=retry_index,
+                                    result=attempt_result,
+                                    connection_acquire_ms=connection_acquire_ms,
+                                    update_ms=update_ms,
+                                    reservation_insert_ms=reservation_insert_ms,
+                                    commit_ms=commit_ms,
+                                    total_attempt_ms=(
+                                        time.perf_counter() - attempt_start
+                                    )
+                                    * 1000,
+                                )
+                                lock_logger.warning(
+                                    "event=optimistic_conflict_retry lock_mode=optimistic product_id=%s quantity=%s retry_index=%s retry_limit=%s",
                                     product_id,
                                     quantity,
-                                    retry_index,
-                                    elapsed_ms,
+                                    retry_index + 1,
+                                    self._retry_limit,
                                 )
-                            return reservation
-
-                        cur.execute(
-                            """
-                            SELECT stock
-                            FROM products
-                            WHERE id = %s
-                            """,
-                            (product_id,),
-                        )
-                        row = cur.fetchone()
-                        if not row:
-                            return None
-
-                        current_stock = int(row["stock"])
-                        if current_stock < quantity:
-                            lock_logger.warning(
-                                "event=insufficient_stock lock_mode=optimistic product_id=%s quantity=%s current_stock=%s",
-                                product_id,
-                                quantity,
-                                current_stock,
-                            )
-                            raise ValueError("insufficient stock")
-
-                        lock_logger.warning(
-                            "event=optimistic_conflict_retry lock_mode=optimistic product_id=%s quantity=%s retry_index=%s retry_limit=%s",
-                            product_id,
-                            quantity,
-                            retry_index + 1,
-                            self._retry_limit,
-                        )
             lock_logger.warning(
                 "event=optimistic_retry_exhausted lock_mode=optimistic product_id=%s quantity=%s retry_limit=%s",
                 product_id,
@@ -544,3 +801,11 @@ class InventoryReserveEngine:
                 elapsed_ms,
                 self._slow_ms_threshold,
             )
+            if elapsed_ms >= self._slow_ms_threshold:
+                lock_logger.warning(
+                    "event=transaction_slow lock_mode=optimistic product_id=%s quantity=%s elapsed_ms=%.2f threshold_ms=%.2f",
+                    product_id,
+                    quantity,
+                    elapsed_ms,
+                    self._slow_ms_threshold,
+                )

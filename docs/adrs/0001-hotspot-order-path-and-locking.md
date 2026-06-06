@@ -80,10 +80,41 @@ If hotspot instability continues, the next areas to evaluate are:
 - moving parts of confirm/cancel handling off the request path
 - tuning resources and probe thresholds based on real cluster behavior
 
+Another concrete follow-up from later slow-trace work is deeper reserve-path observability inside `product-service`.
+
+The optimistic reservation path now emits stage-level spans and logs for:
+
+1. connection acquire
+2. stock update
+3. reservation insert
+4. commit
+5. stock read after conflict
+
+It also emits an attempt-level summary carrying:
+
+- `retry_index`
+- `connection_acquire_ms`
+- `update_ms`
+- `reservation_insert_ms`
+- `commit_ms`
+- `total_attempt_ms`
+
+This does not change the decision in this ADR. It makes the hotspot inventory path diagnosable enough to distinguish:
+
+- DB pool wait
+- slow `UPDATE products ... RETURNING`
+- slow reservation persistence
+- slow commit
+- optimistic retry churn under contention
+
+That observability is now part of how we operate and evaluate the locking strategy captured here.
+
 ## Related Changes
 
 - `application/flashsale/order-service/app/service.py`
+- `application/flashsale/product-service/app/locking/inventory.py`
 - `application/flashsale/product-service/app/models.py`
 - `application/flashsale/product-service/app/repositories.py`
 - `application/flashsale/product-service/app/in_memory_repository.py`
+- `application/flashsale/product-service/tests/unit/test_reserve_observability.py`
 - `charts/flashsales/values.yaml`
