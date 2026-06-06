@@ -13,6 +13,17 @@ sys.modules.setdefault("psycopg.rows", psycopg_rows_stub)
 from app.locking.inventory import InventoryReserveEngine
 
 
+class _FakeSpan:
+    def __enter__(self) -> "_FakeSpan":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def set_attribute(self, name: str, value: object) -> None:
+        return None
+
+
 class _FakeCursor:
     def __init__(self) -> None:
         self._fetches = [
@@ -121,6 +132,54 @@ class ProductReserveObservabilityTest(unittest.TestCase):
                 "event=product_service_reserve_attempt_slow" in message
                 for message in warning_messages
             )
+        )
+
+    def test_optimistic_reserve_uses_clear_span_names(self) -> None:
+        engine = InventoryReserveEngine(
+            database_url="postgresql://example",
+            lock_mode="optimistic",
+            retry_limit=1,
+            slow_ms_threshold=200,
+            pool=_FakePool(),
+        )
+        span_names: list[str] = []
+
+        def _fake_start_span(service_name: str, name: str, **kwargs):
+            span_names.append(name)
+            return _FakeSpan()
+
+        with (
+            patch("app.locking.inventory.start_span", side_effect=_fake_start_span),
+            patch(
+                "app.locking.inventory.time.perf_counter",
+                side_effect=[
+                    0.00,
+                    0.00,
+                    0.00,
+                    0.01,
+                    0.01,
+                    0.26,
+                    0.26,
+                    0.27,
+                    0.27,
+                    0.28,
+                    0.28,
+                    0.28,
+                    0.28,
+                ],
+            ),
+        ):
+            engine.reserve_with_reservation(
+                product_id=7,
+                quantity=1,
+                reservation_ttl_seconds=300,
+            )
+
+        self.assertIn("inventory reservation transaction", span_names)
+        self.assertIn("inventory connection acquire", span_names)
+        self.assertLess(
+            span_names.index("inventory reservation transaction"),
+            span_names.index("inventory connection acquire"),
         )
 
 

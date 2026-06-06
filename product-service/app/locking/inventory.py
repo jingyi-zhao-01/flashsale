@@ -538,7 +538,7 @@ class InventoryReserveEngine:
                     connection_start = time.perf_counter()
                     with start_span(
                         "product-service",
-                        "inventory connection acquire",
+                        "inventory reservation transaction",
                         kind=SpanKind.INTERNAL,
                         attributes={
                             "flashsale.product_id": product_id,
@@ -549,9 +549,19 @@ class InventoryReserveEngine:
                         with self._pool.connection(
                             autocommit=False, row_factory=dict_row
                         ) as conn:
-                            connection_acquire_ms = (
-                                time.perf_counter() - connection_start
-                            ) * 1000
+                            with start_span(
+                                "product-service",
+                                "inventory connection acquire",
+                                kind=SpanKind.INTERNAL,
+                                attributes={
+                                    "flashsale.product_id": product_id,
+                                    "flashsale.quantity": quantity,
+                                    "flashsale.retry_index": retry_index,
+                                },
+                            ):
+                                connection_acquire_ms = (
+                                    time.perf_counter() - connection_start
+                                ) * 1000
                             self._log_stage_timing(
                                 stage="connection_acquire",
                                 product_id=product_id,
