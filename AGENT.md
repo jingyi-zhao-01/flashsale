@@ -64,10 +64,11 @@ Required defaults:
 * if you change architecture or runtime shape, update `README.md` and/or `docs/flashsales.md`
 * if you change test entrypoints, contracts, or expectations, update `docs/testing.md`
 * if you make a durable architectural decision, add or update an ADR in `docs/adrs/`
-* every flashsale ADR should be mirrored to `wiki/adrs/` in the parent repo
-* meaningful flashsale investigation or behavior changes should also be reflected in `wiki/`
+* keep flashsale ADRs inside `application/flashsale/docs/adrs/`; do not write new flashsale ADRs into the parent `homelab-cloud/wiki/`
+* only add parent-repo wiki content when the task is explicitly about platform-level operations or cross-workload investigation
+* existing root wiki copies of flashsale ADRs should be treated as legacy drift, not as the required destination for new ADR work
 
-Do not leave workload docs and wiki mirrors knowingly divergent.
+Do not leave flashsale workload docs knowingly inconsistent with each other.
 
 ## Database Rules
 
@@ -111,7 +112,7 @@ Common entrypoints:
 * preserve existing service names, ports, release contract fields, and test entrypoints unless the task requires otherwise
 * keep architecture diagrams in sync with actual runtime behavior
 * if you touch app-owned release or quality contracts, consider whether parent repo workflow wiring also needs updating
-* if you change ADRs or workload docs, remember the wiki mirror requirement
+* if you change ADRs or workload docs, keep the source of truth in the flashsale sub-repo docs unless the user explicitly asks for a platform-level writeup
 
 ## Debugging Order
 
