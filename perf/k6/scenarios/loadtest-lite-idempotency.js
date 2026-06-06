@@ -1,5 +1,6 @@
 import http from "k6/http";
 import { sleep } from "k6";
+import exec from "k6/execution";
 import { Rate } from "k6/metrics";
 
 // This scenario replays the same order payload twice and asserts dedupe at both
