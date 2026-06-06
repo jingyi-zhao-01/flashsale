@@ -64,8 +64,8 @@ Required defaults:
 * if you change architecture or runtime shape, update `README.md` and/or `docs/flashsales.md`
 * if you change test entrypoints, contracts, or expectations, update `docs/testing.md`
 * if you make a durable architectural decision, add or update an ADR in `docs/adrs/`
-* every flashsale ADR should be mirrored to `docs/wiki/adrs/` in the parent repo
-* meaningful flashsale investigation or behavior changes should also be reflected in `docs/wiki/`
+* every flashsale ADR should be mirrored to `wiki/adrs/` in the parent repo
+* meaningful flashsale investigation or behavior changes should also be reflected in `wiki/`
 
 Do not leave workload docs and wiki mirrors knowingly divergent.
 
