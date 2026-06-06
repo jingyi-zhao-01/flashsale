@@ -29,7 +29,13 @@ def _load_support_module() -> ModuleType:
 _SUPPORT = _load_support_module()
 
 FlashsaleIntegrationClient = _SUPPORT.FlashsaleIntegrationClient
+request_json = _SUPPORT.request_json
 reset_services = _SUPPORT.reset_services
 wait_for_stack = _SUPPORT.wait_for_stack
 
-__all__ = ["FlashsaleIntegrationClient", "reset_services", "wait_for_stack"]
+__all__ = [
+    "FlashsaleIntegrationClient",
+    "request_json",
+    "reset_services",
+    "wait_for_stack",
+]
