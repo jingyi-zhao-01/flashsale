@@ -81,7 +81,10 @@ def create_request_logging_middleware(
     ) -> Response:
         start = time.perf_counter()
         request_id = request.headers.get("x-request-id", str(uuid4()))
-        span_name = f"{request.method} {request_path_label(request)}"
+        request_path = request_path_label(request)
+        operation = request_path.strip("/").replace("/", "_").replace("-", "_") or "root"
+        service_class = "maintenance" if request_path == "/admin" or request_path.startswith("/admin/") else "api"
+        span_name = f"{request.method} {request_path}"
         context = propagate.extract(dict(request.headers))
         with tracer.start_as_current_span(
             span_name,
@@ -91,6 +94,8 @@ def create_request_logging_middleware(
                 "http.request.method": request.method,
                 "url.path": request.url.path,
                 "flashsale.request_id": request_id,
+                "flashsale.service_class": service_class,
+                "flashsale.operation": operation,
             },
         ) as span:
             try:
@@ -104,11 +109,13 @@ def create_request_logging_middleware(
             span.set_attribute("flashsale.duration_ms", duration_ms)
             log_fn = logger.error if response.status_code >= 400 else logger.info
             log_fn(
-                "event=request service=%s request_id=%s method=%s path=%s status_code=%s duration_ms=%.2f",
+                "event=request service=%s service_class=%s operation=%s request_id=%s method=%s path=%s status_code=%s duration_ms=%.2f",
                 service_name,
+                service_class,
+                operation,
                 request_id,
                 request.method,
-                request_path_label(request),
+                request_path,
                 response.status_code,
                 duration_ms,
             )

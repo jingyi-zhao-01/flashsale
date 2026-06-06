@@ -8,18 +8,22 @@ export function drainTerminalizations({
   timeout,
   maxAttempts = 20,
   pauseSeconds = 0.25,
-  tags = { phase: "teardown" },
+  tags = { phase: "teardown", service_class: "maintenance" },
 }) {
   // 对异步终态化路径，teardown 前先尽量把队列里的任务跑完，
   // 这样既方便看 Grafana 的时序，也能避免旧任务泄漏到下一轮压测。
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const res = http.post(`${orderUrl}/admin/process-terminalizations`, null, {
-      tags,
+      name: "teardown/process-terminalizations",
+      tags: {
+        ...tags,
+        operation: "process_terminalizations",
+      },
       timeout,
     });
     if (res.status !== 200) {
       console.log(
-        `[k6-correctness] terminalization_drain_failed attempt=${attempt} status=${res.status}`,
+        `[k6-maintenance] terminalization_drain_failed endpoint=${orderUrl}/admin/process-terminalizations attempt=${attempt} status=${res.status}`,
       );
       return false;
     }
@@ -29,7 +33,7 @@ export function drainTerminalizations({
     const retryingCount = Number(body.retrying_count || 0);
     if (claimedCount === 0 && retryingCount === 0) {
       console.log(
-        `[k6-correctness] terminalization_drain_complete attempts=${attempt}`,
+        `[k6-maintenance] terminalization_drain_complete endpoint=${orderUrl}/admin/process-terminalizations attempts=${attempt} claimed_count=${claimedCount} retrying_count=${retryingCount}`,
       );
       return true;
     }
@@ -37,7 +41,9 @@ export function drainTerminalizations({
     sleep(pauseSeconds);
   }
 
-  console.log("[k6-correctness] terminalization_drain_exhausted");
+  console.log(
+    "[k6-maintenance] terminalization_drain_exhausted endpoint=/admin/process-terminalizations",
+  );
   return false;
 }
 
@@ -75,7 +81,10 @@ export function cleanupPerfRun({
     userUrl,
     productUrl,
     timeout,
-    tags: { phase: "cleanup" },
+    tags: {
+      phase: "teardown",
+      service_class: "maintenance",
+    },
     orderOptions: { wait: false },
     userOptions: { wait: false },
   });

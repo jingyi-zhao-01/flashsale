@@ -111,6 +111,9 @@ const TEST_DESCRIPTION =
   __ENV.TEST_DESCRIPTION ||
   `Concurrency profile=${PROFILE} tps=${TARGET_TPS} duration=${TEST_DURATION}`;
 const POST_CLEANUP = (__ENV.POST_CLEANUP || "true").toLowerCase() === "true";
+const DRAIN_TERMINALIZATIONS_FIRST = (
+  __ENV.DRAIN_TERMINALIZATIONS_FIRST || "false"
+).toLowerCase() === "true";
 const TERMINALIZATION_DRAIN_ATTEMPTS = Number(
   __ENV.TERMINALIZATION_DRAIN_ATTEMPTS || 20,
 );
@@ -256,7 +259,7 @@ export function teardown(data) {
     productUrl: PRODUCT_URL,
     timeout: K6_HTTP_TIMEOUT,
     postCleanup: POST_CLEANUP,
-    drainTerminalizationsFirst: true,
+    drainTerminalizationsFirst: DRAIN_TERMINALIZATIONS_FIRST,
     drainOptions: {
       maxAttempts: TERMINALIZATION_DRAIN_ATTEMPTS,
       pauseSeconds: TERMINALIZATION_DRAIN_PAUSE_SECONDS,

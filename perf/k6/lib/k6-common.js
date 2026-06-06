@@ -93,7 +93,17 @@ export function resetService(url, serviceName, timeout, tags = {}, options = {})
   const wait = options.wait !== false;
   const query = wait ? "" : "?wait=false";
   const acceptedStatuses = wait ? 204 : [202, 204];
-  const res = http.post(`${url}/admin/reset${query}`, null, { timeout, tags });
+  const requestTags = {
+    ...tags,
+    service_name: serviceName,
+    operation: `${serviceName}_admin_reset`,
+  };
+  const requestName = `teardown/admin-reset/${serviceName}`;
+  const res = http.post(`${url}/admin/reset${query}`, null, {
+    timeout,
+    name: requestName,
+    tags: requestTags,
+  });
   checkStatus(res, `${serviceName} database reset`, acceptedStatuses);
   return res;
 }
