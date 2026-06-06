@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
 
 import httpx
 from fastapi import HTTPException
@@ -15,8 +16,21 @@ from flashsale_shared.observability import inject_trace_headers, start_span
 
 
 class ProductReservationHttpClient:
-    def __init__(self, client_factory: Callable[[], object]) -> None:
+    def __init__(
+        self,
+        client_factory: Callable[[], httpx.Client],
+        *,
+        close_client_after_use: bool = True,
+    ) -> None:
         self._client_factory = client_factory
+        self._close_client_after_use = close_client_after_use
+
+    @contextmanager
+    def _client(self):
+        client = self._client_factory()
+        manager = client if self._close_client_after_use else nullcontext(client)
+        with manager as managed_client:
+            yield managed_client
 
     def reserve(self, product_id: int, quantity: int) -> tuple[float, int, int]:
         with start_span(
@@ -31,7 +45,7 @@ class ProductReservationHttpClient:
             },
         ):
             try:
-                with self._client_factory() as client:
+                with self._client() as client:
                     response = client.post(
                         f"{PRODUCT_SERVICE_URL}/products/{product_id}/reserve",
                         json={"quantity": quantity},
@@ -88,7 +102,7 @@ class ProductReservationHttpClient:
         )
 
     def release(self, reservation_ids: list[int]) -> None:
-        with self._client_factory() as client:
+        with self._client() as client:
             for reservation_id in reversed(reservation_ids):
                 try:
                     client.post(
@@ -116,7 +130,7 @@ class ProductReservationHttpClient:
                     "flashsale.action": action,
                 },
             ):
-                with self._client_factory() as client:
+                with self._client() as client:
                     response = client.post(
                         f"{PRODUCT_SERVICE_URL}/reservations/{reservation_id}/{action}",
                         headers=inject_trace_headers(),

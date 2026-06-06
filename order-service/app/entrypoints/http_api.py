@@ -12,7 +12,12 @@ from app.adapters.user_http_client import UserHttpClient
 from app.application.commands import CreateOrderCommand, PaymentWebhookCommand
 from app.application.order_runtime import OrderRuntime
 from app.config import db_url
-from app.config import ORDER_CREATE_MAX_IN_FLIGHT, REDIS_URL, REDIS_TOKEN
+from app.config import (
+    DEPENDENCY_TIMEOUT_SECONDS,
+    ORDER_CREATE_MAX_IN_FLIGHT,
+    REDIS_URL,
+    REDIS_TOKEN,
+)
 from app.ports.reserve_admission_gate import ReserveAdmissionGate
 from app.entrypoints.worker_loop import TerminalizationWorkerLoop
 from app.models import (
@@ -28,6 +33,7 @@ from flashsale_shared.observability import (
     configure_service_logger,
     create_request_logging_middleware,
     initialize_tracing,
+    start_span,
 )
 from flashsale_shared.reset_control import ResetController
 
@@ -72,10 +78,23 @@ def build_http_api(
     else:
         logger.info("event=redis_admission_gate_disabled reason=no_REDIS_URL")
 
+    dependency_http_client = httpx.Client(
+        timeout=DEPENDENCY_TIMEOUT_SECONDS,
+        limits=httpx.Limits(
+            max_keepalive_connections=64,
+            max_connections=128,
+        ),
+    )
     runtime = OrderRuntime(
         uow=uow,
-        users=UserHttpClient(lambda: httpx.Client()),
-        products=ProductReservationHttpClient(lambda: httpx.Client()),
+        users=UserHttpClient(
+            lambda: dependency_http_client,
+            close_client_after_use=False,
+        ),
+        products=ProductReservationHttpClient(
+            lambda: dependency_http_client,
+            close_client_after_use=False,
+        ),
         admission=admission,
     )
     worker = TerminalizationWorkerLoop(runtime.process_tasks.process)
@@ -98,6 +117,7 @@ def build_http_api(
     def shutdown() -> None:
         if run_background_worker:
             worker.stop()
+        dependency_http_client.close()
 
     async def order_capacity_guard() -> None:
         try:
@@ -169,15 +189,29 @@ def build_http_api(
         },
         dependencies=[Depends(order_capacity_guard)],
     )
-    def create_order(payload: OrderCreateRequest) -> OrderOut:
-        order = runtime.create_orders.create_order(
-            CreateOrderCommand(
-                user_id=payload.user_id,
-                items=tuple((item.product_id, item.quantity) for item in payload.items),
-                idempotency_key=payload.idempotency_key,
+    async def create_order(payload: OrderCreateRequest) -> OrderOut:
+        with start_span(
+            SERVICE_NAME,
+            "dispatch create_order use case",
+            attributes={
+                "flashsale.item_count": len(payload.items),
+                "flashsale.user_id": payload.user_id,
+            },
+        ):
+            return await anyio.to_thread.run_sync(
+                lambda: to_api_order(
+                    runtime.create_orders.create_order(
+                        CreateOrderCommand(
+                            user_id=payload.user_id,
+                            items=tuple(
+                                (item.product_id, item.quantity)
+                                for item in payload.items
+                            ),
+                            idempotency_key=payload.idempotency_key,
+                        )
+                    )
+                )
             )
-        )
-        return to_api_order(order)
 
     @app.get(
         "/orders/{order_id}",

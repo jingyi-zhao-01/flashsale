@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
 
 import httpx
 from fastapi import HTTPException
@@ -9,8 +10,21 @@ from flashsale_shared.observability import inject_trace_headers, start_span
 
 
 class UserHttpClient:
-    def __init__(self, client_factory: Callable[[], object]) -> None:
+    def __init__(
+        self,
+        client_factory: Callable[[], httpx.Client],
+        *,
+        close_client_after_use: bool = True,
+    ) -> None:
         self._client_factory = client_factory
+        self._close_client_after_use = close_client_after_use
+
+    @contextmanager
+    def _client(self):
+        client = self._client_factory()
+        manager = client if self._close_client_after_use else nullcontext(client)
+        with manager as managed_client:
+            yield managed_client
 
     def ensure_user_exists(self, user_id: int) -> None:
         with start_span(
@@ -24,7 +38,7 @@ class UserHttpClient:
             },
         ):
             try:
-                with self._client_factory() as client:
+                with self._client() as client:
                     response = client.get(
                         f"{USER_SERVICE_URL}/users/{user_id}",
                         headers=inject_trace_headers(),
