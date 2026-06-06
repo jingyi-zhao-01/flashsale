@@ -11,11 +11,12 @@ from .config import (
     DB_POOL_TIMEOUT_SECONDS,
     INVENTORY_LOCK_MODE,
     OPTIMISTIC_RETRY_LIMIT,
+    RESERVATION_TTL_SECONDS,
     RESERVE_SQL_LOG_SLOW_MS,
 )
 from flashsale_shared.db_pool import DatabasePool
 from flashsale_shared.postgres_schema import ensure_schema, set_search_path
-from .in_memory_repository import InMemoryProductRepository, RESERVATION_TTL_SECONDS, seed_items
+from .in_memory_repository import InMemoryProductRepository, seed_items
 from .locking import InventoryReserveEngine
 from .models import ProductCreate, ProductOut, ReservationOut
 
@@ -52,9 +53,7 @@ class ProductRepository(ABC):
         pass
 
     @abstractmethod
-    def reserve_product(
-        self, product_id: int, quantity: int
-    ) -> ReservationOut | None:
+    def reserve_product(self, product_id: int, quantity: int) -> ReservationOut | None:
         pass
 
     @abstractmethod
@@ -76,6 +75,7 @@ class ProductRepository(ABC):
     @abstractmethod
     def list_products(self) -> list[ProductOut]:
         pass
+
 
 class PostgresProductRepository(ProductRepository):
     def __init__(self, database_url: str, schema_name: str = "product_service") -> None:
@@ -229,9 +229,7 @@ class PostgresProductRepository(ProductRepository):
                     stock=int(row["stock"]),
                 )
 
-    def reserve_product(
-        self, product_id: int, quantity: int
-    ) -> ReservationOut | None:
+    def reserve_product(self, product_id: int, quantity: int) -> ReservationOut | None:
         start = time.perf_counter()
         result = "updated"
         try:
@@ -249,9 +247,11 @@ class PostgresProductRepository(ProductRepository):
                 quantity=int(reservation_row["quantity"]),
                 unit_price=float(reservation_row["unit_price"]),
                 status=str(reservation_row["status"]),
-                expires_at=reservation_row["expires_at"].isoformat()
-                if reservation_row["expires_at"]
-                else None,
+                expires_at=(
+                    reservation_row["expires_at"].isoformat()
+                    if reservation_row["expires_at"]
+                    else None
+                ),
             )
         except ValueError:
             result = "insufficient_stock"
@@ -290,9 +290,15 @@ class PostgresProductRepository(ProductRepository):
                     reservation_id=int(row["reservation_id"]),
                     product_id=int(row["product_id"]),
                     quantity=int(row["quantity"]),
-                    unit_price=float(row["unit_price"]) if row["unit_price"] is not None else None,
+                    unit_price=(
+                        float(row["unit_price"])
+                        if row["unit_price"] is not None
+                        else None
+                    ),
                     status=str(row["status"]),
-                    expires_at=row["expires_at"].isoformat() if row["expires_at"] else None,
+                    expires_at=(
+                        row["expires_at"].isoformat() if row["expires_at"] else None
+                    ),
                 )
 
     def cancel_reservation(self, reservation_id: int) -> ReservationOut | None:
@@ -330,24 +336,28 @@ class PostgresProductRepository(ProductRepository):
                     reservation_id=int(row["reservation_id"]),
                     product_id=int(row["product_id"]),
                     quantity=int(row["quantity"]),
-                    unit_price=float(row["unit_price"]) if row["unit_price"] is not None else None,
+                    unit_price=(
+                        float(row["unit_price"])
+                        if row["unit_price"] is not None
+                        else None
+                    ),
                     status=str(row["status"]),
-                    expires_at=row["expires_at"].isoformat() if row["expires_at"] else None,
+                    expires_at=(
+                        row["expires_at"].isoformat() if row["expires_at"] else None
+                    ),
                 )
 
     def expire_reservations(self) -> int:
         expired_count = 0
         with self._pool.connection(autocommit=False, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
+                cur.execute("""
                     SELECT reservation_id, product_id, quantity
                     FROM reservations
                     WHERE status = 'reserved' AND expires_at <= NOW()
                     ORDER BY expires_at ASC, reservation_id ASC
                     FOR UPDATE
-                    """
-                )
+                    """)
                 rows = cur.fetchall()
                 for row in rows:
                     cur.execute(

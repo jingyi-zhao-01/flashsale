@@ -2,10 +2,8 @@ from datetime import datetime, timedelta, timezone
 from itertools import count
 from threading import Lock
 
-from .config import DEFAULT_SEED_PRODUCT_COUNT
+from .config import DEFAULT_SEED_PRODUCT_COUNT, RESERVATION_TTL_SECONDS
 from .models import ProductCreate, ProductOut, ReservationOut
-
-RESERVATION_TTL_SECONDS = 300
 
 
 def seed_items(
@@ -87,9 +85,7 @@ class InMemoryProductRepository:
     def get_product(self, product_id: int) -> ProductOut | None:
         return self._products.get(product_id)
 
-    def reserve_product(
-        self, product_id: int, quantity: int
-    ) -> ReservationOut | None:
+    def reserve_product(self, product_id: int, quantity: int) -> ReservationOut | None:
         with self._lock:
             product = self._products.get(product_id)
             if not product:
