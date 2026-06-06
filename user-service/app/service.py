@@ -1,6 +1,7 @@
 import logging
 
 import psycopg
+import psycopg.errors  # noqa: F401  # ensure errors submodule is loaded
 from fastapi import HTTPException
 
 from .config import DATABASE_UNAVAILABLE_MESSAGE

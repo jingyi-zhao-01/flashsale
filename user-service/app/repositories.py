@@ -3,6 +3,7 @@ from threading import Lock
 from typing import Protocol
 
 import psycopg
+import psycopg.errors  # noqa: F401  # ensure errors submodule is loaded
 from psycopg.rows import dict_row
 
 from .config import DB_POOL_MAX_SIZE, DB_POOL_MIN_SIZE, DB_POOL_TIMEOUT_SECONDS
