@@ -76,19 +76,21 @@ export function cleanupPerfRun({
     productUrl,
     timeout,
     tags: { phase: "cleanup" },
+    orderOptions: { wait: false },
+    userOptions: { wait: false },
   });
   const allOk =
-    results.order.status === 204 &&
-    results.user.status === 204 &&
+    (results.order.status === 202 || results.order.status === 204) &&
+    (results.user.status === 202 || results.user.status === 204) &&
     results.product.status === 204;
 
   console.log(
-    `[k6-post-cleanup] completed order_reset=${results.order.status === 204} user_reset=${results.user.status === 204} product_reset=${results.product.status === 204} all_ok=${allOk}`,
+    `[k6-post-cleanup] completed order_reset=${results.order.status === 202 || results.order.status === 204} user_reset=${results.user.status === 202 || results.user.status === 204} product_reset=${results.product.status === 204} all_ok=${allOk}`,
   );
 
   return {
-    order: results.order.status === 204,
-    user: results.user.status === 204,
+    order: results.order.status === 202 || results.order.status === 204,
+    user: results.user.status === 202 || results.user.status === 204,
     product: results.product.status === 204,
     allOk,
   };

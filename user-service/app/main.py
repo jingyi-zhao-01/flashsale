@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from .config import db_url, use_postgres
 from .models import HealthResponse, UserCreate, UserOut
@@ -7,6 +7,7 @@ from flashsale_shared.observability import (
     create_request_logging_middleware,
     initialize_tracing,
 )
+from flashsale_shared.reset_control import ResetController
 from .repositories import InMemoryUserRepository, PostgresUserRepository
 from .service import UserService
 
@@ -16,6 +17,7 @@ logger = configure_service_logger(SERVICE_NAME)
 
 app = FastAPI(title=SERVICE_NAME, version="0.1.0")
 app.middleware("http")(create_request_logging_middleware(logger, SERVICE_NAME))
+app.state.reset_controller = ResetController()
 
 if use_postgres():
     repository = PostgresUserRepository(db_url())
@@ -87,7 +89,14 @@ def list_users() -> list[UserOut]:
 @app.post(
     "/admin/reset",
     status_code=204,
-    responses={503: {"description": "Database unavailable"}},
+    responses={
+        202: {"description": "Reset accepted and running in background"},
+        503: {"description": "Database unavailable"},
+    },
 )
-def admin_reset() -> None:
-    user_service._repository.reset_db()
+def admin_reset(wait: bool = True) -> Response:
+    if wait:
+        app.state.reset_controller.run(user_service._repository.reset_db)
+        return Response(status_code=204)
+    app.state.reset_controller.trigger(user_service._repository.reset_db)
+    return Response(status_code=202)

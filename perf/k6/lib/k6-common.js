@@ -85,9 +85,12 @@ export function checkStatus(res, label, acceptedStatuses) {
   });
 }
 
-export function resetService(url, serviceName, timeout, tags = {}) {
-  const res = http.post(`${url}/admin/reset`, null, { timeout, tags });
-  checkStatus(res, `${serviceName} database reset`, 204);
+export function resetService(url, serviceName, timeout, tags = {}, options = {}) {
+  const wait = options.wait !== false;
+  const query = wait ? "" : "?wait=false";
+  const acceptedStatuses = wait ? 204 : [202, 204];
+  const res = http.post(`${url}/admin/reset${query}`, null, { timeout, tags });
+  checkStatus(res, `${serviceName} database reset`, acceptedStatuses);
   return res;
 }
 
@@ -97,10 +100,13 @@ export function resetAllServices({
   productUrl,
   timeout,
   tags = {},
+  orderOptions = {},
+  userOptions = {},
+  productOptions = {},
 }) {
-  const orderRes = resetService(orderUrl, "order", timeout, tags);
-  const userRes = resetService(userUrl, "user", timeout, tags);
-  const productRes = resetService(productUrl, "product", timeout, tags);
+  const orderRes = resetService(orderUrl, "order", timeout, tags, orderOptions);
+  const userRes = resetService(userUrl, "user", timeout, tags, userOptions);
+  const productRes = resetService(productUrl, "product", timeout, tags, productOptions);
   return {
     order: orderRes,
     user: userRes,

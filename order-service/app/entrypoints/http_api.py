@@ -25,6 +25,7 @@ from flashsale_shared.observability import (
     create_request_logging_middleware,
     initialize_tracing,
 )
+from flashsale_shared.reset_control import ResetController
 
 SERVICE_NAME = "order-service"
 
@@ -47,6 +48,8 @@ def build_http_api(
     orders_limiter = anyio.CapacityLimiter(ORDER_CREATE_MAX_IN_FLIGHT)
     repository = uow
     app.state.repository = repository
+    app.state.reset_target = uow
+    app.state.reset_controller = ResetController()
 
     @app.on_event("startup")
     def startup() -> None:
@@ -190,15 +193,22 @@ def build_http_api(
         "/admin/reset",
         status_code=204,
         summary="Reset order storage",
-        description="Clears order-service backing storage for local and integration test workflows.",
+        description=(
+            "Clears order-service backing storage for local and integration test workflows. "
+            "Pass wait=false to trigger the reset asynchronously."
+        ),
         tags=["admin"],
         responses={
-            503: {"model": ErrorResponse, "description": "Database unavailable"}
+            202: {"description": "Reset accepted and running in background"},
+            503: {"model": ErrorResponse, "description": "Database unavailable"},
         },
     )
-    def admin_reset() -> Response:
-        uow.reset()
-        return Response(status_code=204)
+    def admin_reset(wait: bool = True) -> Response:
+        if wait:
+            app.state.reset_controller.run(app.state.reset_target.reset)
+            return Response(status_code=204)
+        app.state.reset_controller.trigger(app.state.reset_target.reset)
+        return Response(status_code=202)
 
     @app.post(
         "/admin/expire-orders",
