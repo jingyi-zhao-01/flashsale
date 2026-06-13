@@ -1,4 +1,4 @@
-# Flashsale C4 Container Diagram
+# Flashsale architecture overview
 # Render: d2 --theme=0 --pad=32 docs/diagram/architecture.d2 docs/diagram/architecture.svg
 
 direction: right
@@ -11,85 +11,160 @@ vars: {
   }
 }
 
-# ----- External -----
-client: Client {
-  shape: person
-  style.fill: "#e0e7ff"
-  style.stroke: "#4f46e5"
+rate_limit_plane: {
+  label: "Redis Admission Plane"
+  style: {
+    fill: "#F8FAFC"
+    stroke: "#CBD5E1"
+    stroke-width: 2
+  }
+
+  redis_runtime: {
+    label: "Redis"
+    shape: cylinder
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#94A3B8"
+      stroke-width: 2
+    }
+  }
+
+  redis_note: {
+    label: "per-product admission-control before reserve\nPOST /orders concurrency-control stays inside order-service"
+    shape: text
+    style: {
+      font-size: 20
+    }
+  }
 }
 
-# ----- Boundary: Docker Compose -----
-compose: "Flashsale — Docker Compose" {
-  style.fill: "#f8fafc"
-  style.stroke: "#94a3b8"
-  style.stroke-dash: 4
-
-  # ----- Services -----
-  order-service: "order-service\n:18000" {
-    style.fill: "#dbeafe"
-    style.stroke: "#2563eb"
-    style.stroke-width: 2
-  }
-  product-service: "product-service\n:18002" {
-    style.fill: "#dcfce7"
-    style.stroke: "#16a34a"
-    style.stroke-width: 2
-  }
-  user-service: "user-service\n:18001" {
-    style.fill: "#fef3c7"
-    style.stroke: "#d97706"
-    style.stroke-width: 2
-  }
-  terminalizer: "terminalizer\n(background worker)" {
-    style.fill: "#f3e8ff"
-    style.stroke: "#9333ea"
-    style.stroke-width: 2
+service_plane: {
+  label: "Core Services"
+  style: {
+    fill: "#FCFCFD"
+    stroke: "#CBD5E1"
+    stroke-width: 2
   }
 
-  # ----- Shared Database -----
-  flashsale-db: "flashsale-db\n(PostgreSQL 16)\nshared DATABASE_URL" {
-    style.fill: "#eff6ff"
-    style.stroke: "#2563eb"
-    style.stroke-width: 2
-
-    order-schema: "order_service schema\norders\nterminalization tasks\nterminalization events" {
-      shape: document
-      style.fill: "#dbeafe"
-      style.stroke: "#2563eb"
-    }
-    product-schema: "product_service schema\nproducts\nreservations" {
-      shape: document
-      style.fill: "#dcfce7"
-      style.stroke: "#16a34a"
-    }
-    user-schema: "user_service schema\nusers" {
-      shape: document
-      style.fill: "#fef3c7"
-      style.stroke: "#d97706"
+  product_service: {
+    label: "product service\nGET /products\nGET /products/{id}\nPOST /products/{id}/reserve\nPOST /reservations/{id}/confirm\nPOST /reservations/{id}/cancel"
+    shape: rectangle
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#64748B"
+      stroke-width: 2
     }
   }
 
-  # ----- Shared Library -----
-  shared: "flashsale_shared\n(observability, cache, pool)" {
-    style.fill: "#f3e8ff"
-    style.stroke: "#9333ea"
+  user_service: {
+    label: "user service\nGET /users\nGET /users/{id}\nPOST /users"
+    shape: rectangle
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#64748B"
+      stroke-width: 2
+    }
   }
 
-  # Connections
-  order-service -> flashsale-db.order-schema: "SQL\nsearch_path=order_service"
-  product-service -> flashsale-db.product-schema: "SQL / advisory lock\nsearch_path=product_service"
-  user-service -> flashsale-db.user-schema: "SQL\nsearch_path=user_service"
+  order_service: {
+    label: "order service\nPOST /orders\nGET /orders\nGET /orders/{id}\nPOST /payments/webhook"
+    shape: rectangle
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#64748B"
+      stroke-width: 2
+    }
+  }
 
-  order-service -> user-service: "HTTP\nGET /users/{id}"
-  order-service -> product-service: "HTTP\nPOST /reserve\nPOST /confirm"
-  order-service -> terminalizer: "enqueue"
-
-  shared -> order-service: "import"
-  shared -> product-service: "import"
-  shared -> user-service: "import"
+  order_worker: {
+    label: "order service-worker\nconsumes terminalization tasks\ncalls confirm / cancel downstream"
+    shape: rectangle
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#64748B"
+      stroke-width: 2
+    }
+  }
 }
 
-# External connections
-client -> order-service: "HTTP"
-client -> product-service: "HTTP"
-client -> user-service: "HTTP"
+data_plane: {
+  label: "Managed Postgres (Neon)"
+  style: {
+    fill: "#FFFFFF"
+    stroke: "#64748B"
+    stroke-width: 2
+  }
+
+  user_schema: {
+    label: "user_service.users"
+    shape: document
+    style: {
+      fill: "#FEFCE8"
+      stroke: "#A1A1AA"
+      stroke-width: 2
+    }
+  }
+
+  product_schema: {
+    label: "product_service.products\nproduct_service.reservations"
+    shape: document
+    style: {
+      fill: "#FEFCE8"
+      stroke: "#A1A1AA"
+      stroke-width: 2
+    }
+  }
+
+  order_schema: {
+    label: "order_service.orders\norder_service.order_terminalization_tasks\norder_service.order_terminalization_task_events"
+    shape: document
+    style: {
+      fill: "#FEFCE8"
+      stroke: "#A1A1AA"
+      stroke-width: 2
+    }
+  }
+}
+
+async_notes: {
+  label: ""
+  style: {
+    fill: "transparent"
+    stroke: "transparent"
+  }
+
+  worker_note_manage: {
+    label: "manage order state"
+    shape: text
+    style: {
+      font-size: 20
+    }
+  }
+
+  worker_note_consume: {
+    label: "consume order terminalization tasks"
+    shape: text
+    style: {
+      font-size: 20
+    }
+  }
+}
+
+rate_limit_plane.redis_runtime -> service_plane.order_service: ""
+rate_limit_plane.redis_note -> service_plane.order_service: ""
+
+service_plane.product_service -> data_plane.product_schema: "owns product + reservation facts"
+service_plane.user_service -> data_plane.user_schema: "owns user facts"
+service_plane.order_service -> data_plane.order_schema: "creates order + enqueues work"
+
+data_plane.order_schema -> service_plane.order_worker: ""
+async_notes.worker_note_consume -> service_plane.order_worker: ""
+
+service_plane.order_worker -> data_plane.order_schema: "updates task status / retries"
+service_plane.order_worker -> data_plane.product_schema: ""
+async_notes.worker_note_manage -> service_plane.order_worker: ""
+
+service_plane.product_service.style.multiple: true
+service_plane.user_service.style.multiple: true
+service_plane.order_service.style.multiple: true
+service_plane.order_worker.style.multiple: true
