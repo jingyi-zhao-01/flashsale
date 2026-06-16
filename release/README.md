@@ -63,7 +63,7 @@ The intended split is:
 
 Today that contract is consumed by:
 
-- `homelab-cloud/.github/workflows/flashsales-deploy-post.yml`
+- `homelab-cloud/.github/workflows/flashsales-loadtest-manual.yml`
 - `homelab-cloud/.github/scripts/export_flashsale_quality_contract.py`
 
 This contract is also schema-validated in `application/flashsale/.github/workflows/flashsales-deploy-pre.yml`.
