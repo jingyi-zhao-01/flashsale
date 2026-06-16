@@ -125,6 +125,7 @@ Once forwarded, you can create users, products, and orders with the workload API
 - [ADR 0002-1: Move order confirmation off the synchronous create-order path](adrs/0002-1-order-confirmation-off-synchronous-path.md)
 - [ADR 0003: Isolate order worker and introduce per-service DB pools](adrs/0003-isolate-order-worker-and-introduce-per-service-db-pools.md)
 - [ADR 0004: Manage flashsale schema and migrations with Python Prisma](adrs/0004-manage-flashsale-schema-and-migrations-with-python-prisma.md)
+- [ADR 0007: Use Kafka for reservation terminalization queue](adrs/0007-kafka-terminalization-queue.md)
 - [Flashsale architecture](../architecture.md)
 - [Repository overview](../../docs/overview.md)
 - [Operations and tooling](../../docs/operations.md)
