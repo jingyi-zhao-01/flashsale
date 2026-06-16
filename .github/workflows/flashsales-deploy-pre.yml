@@ -22,16 +22,10 @@ on:
       - '.github/workflows/flashsales-deploy-pre.yml'
       - '.github/scripts/notify-discord.sh'
   pull_request:
-    paths:
-      - 'shared/**'
-      - 'user-service/**'
-      - 'product-service/**'
-      - 'order-service/**'
-      - 'release/**'
-      - 'scripts/**'
-      - 'docker-compose.yaml'
-      - '.github/workflows/flashsales-deploy-pre.yml'
-      - '.github/scripts/notify-discord.sh'
+    types:
+      - opened
+    branches:
+      - main
 
 concurrency:
   group: flashsales-deploy-pre-${{ github.ref }}
@@ -253,7 +247,6 @@ jobs:
       - user-service-compose-integration-gate
     if: >-
       ${{
-        github.event_name != 'pull_request' &&
         needs.quality-contract-schema-gate.result == 'success' &&
         needs.shared-unit-gate.result == 'success' &&
         needs.product-service-unit-gate.result == 'success' &&
@@ -286,7 +279,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push ${{ matrix.service }}
+      - name: Build and Push ${{ matrix.service }} PR Image
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/flashsales-${{ matrix.service }}:${{ github.sha }}
+
+      - name: Build and Push ${{ matrix.service }} Release Image
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -344,7 +348,8 @@ jobs:
       ${{
         (
           (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          (github.event_name == 'workflow_dispatch' && inputs.dispatch_homelab_cloud)
+          (github.event_name == 'workflow_dispatch' && inputs.dispatch_homelab_cloud) ||
+          (github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.base.ref == 'main')
         ) &&
         needs.quality-contract-schema-gate.result == 'success' &&
         needs.shared-unit-gate.result == 'success' &&
@@ -363,6 +368,7 @@ jobs:
         env:
           DISPATCH_TOKEN: ${{ secrets.HOMELAB_CLOUD_REPO_DISPATCH_TOKEN }}
           TARGET_REPO: ${{ vars.HOMELAB_CLOUD_REPO || 'jingyi-zhao-01/homelab-cloud' }}
+          FLASHSALE_FETCH_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref_name }}
         run: |
           set -euo pipefail
 
@@ -382,7 +388,8 @@ jobs:
             "event_type": "flashsale-release-ready",
             "client_payload": {
               "flashsale_repository": "${{ github.repository }}",
-              "flashsale_ref": "${{ github.ref_name }}",
+              "flashsale_ref": "${FLASHSALE_FETCH_REF}",
+              "flashsale_fetch_ref": "${FLASHSALE_FETCH_REF}",
               "flashsale_sha": "${{ github.sha }}",
               "flashsale_image_tag": "${{ github.sha }}",
               "flashsale_run_id": "${{ github.run_id }}",
