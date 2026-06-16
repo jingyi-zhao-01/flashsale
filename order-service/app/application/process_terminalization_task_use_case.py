@@ -1,11 +1,16 @@
-from datetime import datetime, timedelta, timezone
 import logging
 import time
 
 from app.application.results import ProcessTerminalizationTasksResult
+from app.config import KAFKA_TERMINALIZATION_MAX_ATTEMPTS
 from app.domain.statuses import PaymentStatus, OrderStatus, TerminalizationAction
+from app.domain.terminalization_command import TerminalizationCommand
 from flashsale_shared.observability import start_span
 from app.ports.product_reservation_client import ProductReservationClient
+from app.ports.terminalization_command_publisher import (
+    NoOpTerminalizationCommandPublisher,
+    TerminalizationCommandPublisher,
+)
 from app.ports.unit_of_work import UnitOfWork
 
 terminalization_logger = logging.getLogger("order-service.terminalization")
@@ -16,90 +21,72 @@ class ProcessTerminalizationTaskUseCase:
         self,
         uow: UnitOfWork,
         products: ProductReservationClient,
+        terminalization: TerminalizationCommandPublisher | None = None,
     ) -> None:
         self._uow = uow
         self._products = products
+        self._terminalization = (
+            terminalization
+            if terminalization is not None
+            else NoOpTerminalizationCommandPublisher()
+        )
+
+    def set_terminalization_publisher(
+        self,
+        terminalization: TerminalizationCommandPublisher,
+    ) -> None:
+        self._terminalization = terminalization
 
     def process(self, limit: int = 32) -> ProcessTerminalizationTasksResult:
-        poll_start = time.perf_counter()
+        terminalization_logger.info(
+            "event=order_service_worker_poll result=disabled backend=kafka claimed_count=0"
+        )
+        return ProcessTerminalizationTasksResult(0, 0, 0)
+
+    def process_kafka_command(self, command: TerminalizationCommand) -> None:
         with start_span(
             "order-service",
-            "process terminalization batch",
-            attributes={"flashsale.batch_limit": limit},
+            "terminalize reservation",
+            attributes={
+                "flashsale.order_id": command.order_id,
+                "flashsale.reservation_id": command.reservation_id,
+                "flashsale.action": command.action,
+            },
         ):
-            tasks = self._uow.tasks.claim_ready(
-                limit=limit,
-                available_before=datetime.now(timezone.utc),
+            started_at = time.perf_counter()
+            ok, error = self._products.terminalize(
+                command.reservation_id,
+                command.action,
             )
-        if not tasks:
-            terminalization_logger.info(
-                "event=order_service_worker_poll claimed_count=0 succeeded_count=0 retrying_count=0 total_poll_ms=%.2f result=empty",
-                (time.perf_counter() - poll_start) * 1000,
-            )
-            return ProcessTerminalizationTasksResult(0, 0, 0)
-
-        succeeded_count = 0
-        retrying_count = 0
-        for task in tasks:
-            with start_span(
-                "order-service",
-                "terminalize reservation",
-                attributes={
-                    "flashsale.order_id": task.order_id,
-                    "flashsale.reservation_id": task.reservation_id,
-                    "flashsale.action": task.action,
-                },
-            ):
-                started_at = time.perf_counter()
-                ok, error = self._products.terminalize(
-                    task.reservation_id, task.action
-                )
-                if ok and task.action == "confirm":
-                    ok, error = self._update_order_state(task.order_id, task.action)
-                elapsed_ms = (time.perf_counter() - started_at) * 1000
-            terminalization_logger.info(
-                "event=order_service_terminalization_call order_id=%s reservation_id=%s action=%s elapsed_ms=%.2f confirm_cancel_ms=%.2f result=%s attempt_count=%s",
-                task.order_id,
-                task.reservation_id,
-                task.action,
-                elapsed_ms,
-                elapsed_ms,
-                "success" if ok else "retry",
-                task.attempt_count,
-            )
-            if ok:
-                self._uow.tasks.mark_succeeded(task.task_id)
-                succeeded_count += 1
-                continue
-            retrying_count += 1
-            self._uow.tasks.record_event(
-                task_id=task.task_id,
-                order_id=task.order_id,
-                reservation_id=task.reservation_id,
-                action=task.action,
-                event_type="error",
-                attempt_count=task.attempt_count,
-                last_error=error,
-            )
-            self._uow.tasks.mark_retrying(
-                task_id=task.task_id,
-                available_at=datetime.now(timezone.utc)
-                + timedelta(seconds=min(task.attempt_count, 10)),
-                last_error=error or "terminalization_failed",
-            )
-
+            if ok and command.action == "confirm":
+                ok, error = self._update_order_state(command.order_id, command.action)
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+        result = "success" if ok else "retry"
         terminalization_logger.info(
-            "event=order_service_worker_poll claimed_count=%s succeeded_count=%s retrying_count=%s total_poll_ms=%.2f result=processed",
-            len(tasks),
-            succeeded_count,
-            retrying_count,
-            (time.perf_counter() - poll_start) * 1000,
+            "event=order_service_terminalization_call order_id=%s reservation_id=%s action=%s elapsed_ms=%.2f confirm_cancel_ms=%.2f result=%s attempt_count=%s",
+            command.order_id,
+            command.reservation_id,
+            command.action,
+            elapsed_ms,
+            elapsed_ms,
+            result,
+            command.attempt,
         )
-        return ProcessTerminalizationTasksResult(
-            claimed_count=len(tasks),
-            succeeded_count=succeeded_count,
-            retrying_count=retrying_count,
-        )
+        if ok:
+            return
+        last_error = error or "terminalization_failed"
+        if command.attempt >= KAFKA_TERMINALIZATION_MAX_ATTEMPTS:
+            self._terminalization.publish_dead_letter(command, last_error)
+            terminalization_logger.warning(
+                "event=order_service_terminalization_dead_lettered order_id=%s reservation_id=%s action=%s attempt_count=%s error=%s",
+                command.order_id,
+                command.reservation_id,
+                command.action,
+                command.attempt,
+                last_error,
+            )
+            return
+        self._terminalization.publish_retry(command, last_error)
 
     def _update_order_state(
         self, order_id: int, action: TerminalizationAction

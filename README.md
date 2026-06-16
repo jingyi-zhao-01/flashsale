@@ -23,6 +23,27 @@ To reduce `POST /orders` p99 latency under hotspot traffic, the order-service ga
 
 See [ADR 0005](docs/adrs/0005-redis-reserve-admission-control.md) for the full decision record with C4 and sequence diagrams.
 
+### Kafka Terminalization Queue
+
+The default terminalization backend is still the Postgres polling queue. To run
+the Kafka path from [ADR 0007](docs/adrs/0007-kafka-terminalization-queue.md),
+set:
+
+```bash
+TERMINALIZATION_QUEUE_BACKEND=kafka
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_TERMINALIZATION_TOPIC=flashsale.order.terminalization.v1
+KAFKA_TERMINALIZATION_RETRY_TOPIC=flashsale.order.terminalization.retry.v1
+KAFKA_TERMINALIZATION_DLQ_TOPIC=flashsale.order.terminalization.dlq.v1
+```
+
+`order-service` persists the order row and then produces terminalization
+commands to Kafka. No `order_terminalization_tasks` table is used in the Kafka
+path: retry state, attempt count, and DLQ routing live in Kafka message payloads
+and topics. The standalone `order-worker` passively consumes commands and
+commits Kafka offsets only after the terminalization side effect and Postgres
+order state update complete.
+
 ### Cross-service call flow (create order)
 
 ![Order Creation Sequence](docs/diagram/create-order.svg)
@@ -115,8 +136,8 @@ DATABASE_URL=postgresql://test:test@localhost:15432/flashsale make db-migrate-al
 | shared / unit  | `test_cache.py`, `test_observability.py`                    |    14 |
 | user / unit    | `test_user_service.py`, `test_user_api_contract.py`, `test_health_probes.py` | 23 |
 | product / unit | 8 test files                                                |    17 |
-| order / unit   | 9 test files                                                |    51 |
-| **unit total** |                                                             | **105** |
+| order / unit   | 10 test files                                               |    55 |
+| **unit total** |                                                             | **109** |
 | user / integration   | `user_compose_integration.py`                          |     8 |
 | product / integration | `product_compose_integration.py`                      |    10 |
 | order / integration   | `order_compose_integration.py`, `order_admission_integration.py` | 16 |

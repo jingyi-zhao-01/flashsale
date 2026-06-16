@@ -10,12 +10,13 @@ from app.application.create_order_use_case import CreateOrderUseCase
 from app.application.process_terminalization_task_use_case import (
     ProcessTerminalizationTaskUseCase,
 )
+from app.application.results import ProcessTerminalizationTasksResult
 from app.domain.order import Order, OrderItem
-from app.domain.reservation_terminalization_task import (
-    ReservationTerminalizationTask,
-    ReservationTerminalizationTaskEvent,
+from app.domain.state_machines import transition_order
+from app.domain.terminalization_command import (
+    TerminalizationCommand,
+    new_terminalization_command,
 )
-from app.domain.state_machines import claim_task, set_task_status, transition_order
 
 
 class FakeOrderRepository:
@@ -93,92 +94,47 @@ class FakeOrderRepository:
         )
 
 
-class FakeTerminalizationTaskRepository:
+class FakeTerminalizationPublisher:
     def __init__(self) -> None:
-        self._tasks: dict[int, ReservationTerminalizationTask] = {}
-        self._events: list[ReservationTerminalizationTaskEvent] = []
-        self._counter = count(1)
+        self.commands: list[TerminalizationCommand] = []
+        self.retries: list[TerminalizationCommand] = []
+        self.dead_letters: list[TerminalizationCommand] = []
 
-    def enqueue(
+    def publish(
         self,
         order_id: int,
         reservation_ids: list[int],
         action: str,
-        now: datetime,
     ) -> None:
         for reservation_id in reservation_ids:
-            task_id = next(self._counter)
-            self._tasks[task_id] = ReservationTerminalizationTask(
-                task_id=task_id,
-                order_id=order_id,
-                reservation_id=reservation_id,
-                action=action,
-                status="queued",
-                attempt_count=0,
-                available_at=now,
-                created_at=now,
-                last_error=None,
+            self.commands.append(
+                new_terminalization_command(
+                    order_id=order_id,
+                    reservation_id=reservation_id,
+                    action=action,
+                )
             )
 
-    def claim_ready(
-        self,
-        limit: int,
-        available_before: datetime,
-    ) -> list[ReservationTerminalizationTask]:
-        claimed: list[ReservationTerminalizationTask] = []
-        for task_id in sorted(self._tasks):
-            task = self._tasks[task_id]
-            if len(claimed) >= limit:
-                break
-            if task.status not in {"queued", "retrying"}:
-                continue
-            if task.available_at > available_before:
-                continue
-            updated = claim_task(task)
-            self._tasks[task_id] = updated
-            claimed.append(updated)
-        return claimed
-
-    def mark_succeeded(self, task_id: int) -> None:
-        self._tasks[task_id] = set_task_status(self._tasks[task_id], "succeeded", None)
-
-    def mark_retrying(
-        self,
-        task_id: int,
-        available_at: datetime,
-        last_error: str,
-    ) -> None:
-        task = set_task_status(self._tasks[task_id], "retrying", last_error)
-        self._tasks[task_id] = replace(task, available_at=available_at)
-
-    def record_event(
-        self,
-        task_id: int,
-        order_id: int,
-        reservation_id: int,
-        action: str,
-        event_type: str,
-        attempt_count: int,
-        last_error: str | None = None,
-    ) -> None:
-        self._events.append(
-            ReservationTerminalizationTaskEvent(
-                task_id=task_id,
-                order_id=order_id,
-                reservation_id=reservation_id,
-                action=action,
-                event_type=event_type,
-                attempt_count=attempt_count,
-                occurred_at=datetime.now(timezone.utc),
-                last_error=last_error,
-            )
+    def publish_retry(self, command: TerminalizationCommand, error: str) -> None:
+        retry = TerminalizationCommand(
+            event_id=command.event_id,
+            order_id=command.order_id,
+            reservation_id=command.reservation_id,
+            action=command.action,
+            attempt=command.attempt + 1,
+            created_at=command.created_at,
+            idempotency_key=command.idempotency_key,
         )
+        self.retries.append(retry)
+        self.commands.append(retry)
+
+    def publish_dead_letter(self, command: TerminalizationCommand, error: str) -> None:
+        self.dead_letters.append(command)
 
 
 class FakeUnitOfWork:
     def __init__(self) -> None:
         self.orders = FakeOrderRepository()
-        self.tasks = FakeTerminalizationTaskRepository()
 
     def init_db(self) -> None:
         return
@@ -188,16 +144,14 @@ class FakeUnitOfWork:
 
     def reset(self) -> None:
         self.orders = FakeOrderRepository()
-        self.tasks = FakeTerminalizationTaskRepository()
 
-    def create_order_and_enqueue_terminalization(
+    def create_order(
         self,
         user_id: int,
         total_amount: float,
         items: list[OrderItem],
         reservation_ids: list[int],
         idempotency_key: str | None = None,
-        action: str = "confirm",
     ) -> Order:
         if idempotency_key:
             existing = self.orders.get_by_idempotency_key(idempotency_key)
@@ -211,12 +165,6 @@ class FakeUnitOfWork:
             idempotency_key=idempotency_key,
             status="pending",
             payment_status="pending",
-        )
-        self.tasks.enqueue(
-            order_id=order.id,
-            reservation_ids=reservation_ids,
-            action=action,
-            now=datetime.now(timezone.utc),
         )
         return order
 
@@ -233,12 +181,6 @@ class FakeUnitOfWork:
             return None
         updated = transition_order(order, status, payment_status)
         self.orders.replace_order(updated)
-        self.tasks.enqueue(
-            order_id=order_id,
-            reservation_ids=reservation_ids,
-            action=action,
-            now=datetime.now(timezone.utc),
-        )
         return updated
 
 
@@ -279,6 +221,8 @@ class FakeProductReservationClient:
 
     def terminalize(self, reservation_id: int, action: str) -> tuple[bool, str | None]:
         if action == "confirm":
+            if self.reservations.get(reservation_id) == "confirmed":
+                return True, None
             self.confirm_calls += 1
             if self.confirm_status_code >= 400:
                 return False, f"status_code={self.confirm_status_code}"
@@ -328,25 +272,36 @@ class OrderServiceLifecycleTest(unittest.TestCase):
     def setUp(self) -> None:
         self.uow = FakeUnitOfWork()
         self.products = FakeProductReservationClient(stock=5, price=9.99)
+        self.terminalization = FakeTerminalizationPublisher()
         self.create_orders = CreateOrderUseCase(
             uow=self.uow,
             users=FakeUserDirectoryClient(),
             products=self.products,
+            terminalization=self.terminalization,
         )
         self.process_tasks = ProcessTerminalizationTaskUseCase(
             uow=self.uow,
             products=self.products,
+            terminalization=self.terminalization,
         )
         self.command = CreateOrderCommand(
             user_id=1,
             items=((42, 1),),
         )
 
+    def _drain_one_terminalization(self) -> ProcessTerminalizationTasksResult:
+        command = self.terminalization.commands.pop(0)
+        before_retries = len(self.terminalization.retries)
+        self.process_tasks.process_kafka_command(command)
+        succeeded = 0 if len(self.terminalization.retries) > before_retries else 1
+        retrying = 1 if len(self.terminalization.retries) > before_retries else 0
+        return ProcessTerminalizationTasksResult(1, succeeded, retrying)
+
     def test_successful_order_is_confirmed(self) -> None:
         order = self.create_orders.create_order(self.command)
         self.assertEqual(order.status, "pending")
         self.assertEqual(order.payment_status, "pending")
-        worker_result = self.process_tasks.process()
+        worker_result = self._drain_one_terminalization()
 
         persisted = self.uow.orders.get(order.id)
         self.assertIsNotNone(persisted)
@@ -365,7 +320,7 @@ class OrderServiceLifecycleTest(unittest.TestCase):
         order = self.create_orders.create_order(self.command)
         self.assertEqual(order.status, "pending")
         self.assertEqual(order.payment_status, "pending")
-        worker_result = self.process_tasks.process()
+        worker_result = self._drain_one_terminalization()
 
         self.assertEqual(order.status, "pending")
         self.assertEqual(order.payment_status, "pending")
@@ -395,7 +350,7 @@ class OrderServiceLifecycleTest(unittest.TestCase):
 
         first = self.create_orders.create_order(command)
         second = self.create_orders.create_order(command)
-        self.process_tasks.process()
+        self._drain_one_terminalization()
 
         self.assertEqual(first.id, second.id)
         self.assertEqual(first.status, "pending")
@@ -422,7 +377,7 @@ class OrderServiceLifecycleTest(unittest.TestCase):
         )
 
         result = self.create_orders.expire_orders()
-        worker_result = self.process_tasks.process()
+        worker_result = self._drain_one_terminalization()
         expired_order = self.uow.orders.get(order.id)
 
         self.assertEqual(result.expired_count, 1)
@@ -450,13 +405,26 @@ class OrderServiceLifecycleTest(unittest.TestCase):
 
         first = self.create_orders.process_payment_webhook(command)
         second = self.create_orders.process_payment_webhook(command)
-        self.process_tasks.process()
+        self._drain_one_terminalization()
 
         self.assertEqual(first.id, second.id)
         self.assertEqual(first.status, "confirmed")
         self.assertEqual(second.payment_status, "succeeded")
         self.assertEqual(self.products.stock, 4)
         self.assertEqual(self.products.reservations[1], "confirmed")
+        self.assertEqual(self.products.confirm_calls, 1)
+
+    def test_kafka_terminalization_command_confirms_order_once(self) -> None:
+        order = self.create_orders.create_order(self.command)
+        command = self.terminalization.commands[0]
+
+        self.process_tasks.process_kafka_command(command)
+        self.process_tasks.process_kafka_command(command)
+
+        persisted = self.uow.orders.get(order.id)
+        self.assertIsNotNone(persisted)
+        self.assertEqual(persisted.status, "confirmed")
+        self.assertEqual(persisted.payment_status, "succeeded")
         self.assertEqual(self.products.confirm_calls, 1)
 
     def test_payment_success_after_timeout_race_keeps_order_expired(self) -> None:
@@ -480,7 +448,7 @@ class OrderServiceLifecycleTest(unittest.TestCase):
         raced = self.create_orders.process_payment_webhook(
             PaymentWebhookCommand(order_id=order.id, event_id="evt-timeout")
         )
-        self.process_tasks.process()
+        self._drain_one_terminalization()
 
         self.assertEqual(raced.status, "expired")
         self.assertEqual(raced.payment_status, "cancelled")

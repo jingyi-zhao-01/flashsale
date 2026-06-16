@@ -16,6 +16,8 @@ charset-normalizer==3.4.7
     # via requests
 click==8.4.0
     # via uvicorn
+confluent-kafka==2.14.2
+    # via order-service (order-service/pyproject.toml)
 fastapi==0.115.5
     # via order-service (order-service/pyproject.toml)
 googleapis-common-protos==1.75.0

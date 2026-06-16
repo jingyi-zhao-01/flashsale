@@ -48,14 +48,13 @@ class FailingUnitOfWork:
     def __init__(self) -> None:
         self.orders = FailingOrdersRepository()
 
-    def create_order_and_enqueue_terminalization(
+    def create_order(
         self,
         user_id: int,
         total_amount: float,
         items,
         reservation_ids,
         idempotency_key: str | None = None,
-        action: str = "confirm",
     ):
         raise RuntimeError("simulated persistence failure")
 

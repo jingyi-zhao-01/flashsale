@@ -6,14 +6,6 @@ OrderStatus = Literal["pending", "confirmed", "failed", "cancelled", "expired"]
 PaymentStatus = Literal["pending", "succeeded", "cancelled"]
 PaymentWebhookStatus = Literal["succeeded"]
 TerminalizationAction = Literal["confirm", "cancel"]
-TerminalizationTaskStatus = Literal["queued", "processing", "succeeded", "retrying"]
-TerminalizationEventType = Literal[
-    "queued",
-    "processing",
-    "retrying",
-    "succeeded",
-    "error",
-]
 
 
 class OrderItemRequest(BaseModel):

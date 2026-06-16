@@ -14,9 +14,7 @@ from app.adapters.order_postgres_rows import (
 )
 from app.adapters.order_postgres_schema import (
     ensure_order_tables,
-    ensure_terminalization_tables,
 )
-from app.adapters.terminalization_task_postgres_repository import TerminalizationTaskPostgresRepository
 from app.config import DB_POOL_MAX_SIZE, DB_POOL_MIN_SIZE, DB_POOL_TIMEOUT_SECONDS
 from app.domain.order import Order
 from app.domain.state_machines import transition_order
@@ -44,7 +42,6 @@ class OrderPostgresUnitOfWork:
             timeout_seconds=DB_POOL_TIMEOUT_SECONDS,
         )
         self.orders = OrderPostgresRepository(database_url, pool=self._pool)
-        self.tasks = TerminalizationTaskPostgresRepository(database_url, pool=self._pool)
 
     def init_db(self) -> None:
         with psycopg.connect(self._database_url, autocommit=True) as conn:
@@ -52,7 +49,6 @@ class OrderPostgresUnitOfWork:
                 ensure_schema(cur, self._schema_name)
                 set_search_path(cur, self._schema_name)
                 ensure_order_tables(cur)
-                ensure_terminalization_tables(cur)
 
     def is_healthy(self) -> bool:
         with psycopg.connect(self._database_url, connect_timeout=2) as conn:
@@ -66,22 +62,20 @@ class OrderPostgresUnitOfWork:
             with conn.cursor() as cur:
                 cur.execute("TRUNCATE TABLE orders RESTART IDENTITY CASCADE")
 
-    def create_order_and_enqueue_terminalization(
+    def create_order(
         self,
         user_id: int,
         total_amount: float,
         items: list["OrderItem"],
         reservation_ids: list[int],
         idempotency_key: str | None = None,
-        action: TerminalizationAction = "confirm",
     ) -> Order:
         order_db_ms = 0.0
-        enqueue_task_ms = 0.0
         total_start = time.perf_counter()
         result = "inserted"
         with start_span(
             "order-service",
-            "order db create and enqueue",
+            "order db create",
             attributes={"db.system": "postgresql"},
         ):
             with self._pool.connection(autocommit=False, row_factory=ROW_FACTORY) as conn:
@@ -137,27 +131,6 @@ class OrderPostgresUnitOfWork:
                         )
                         return order
                     order_db_ms = (time.perf_counter() - create_start) * 1000
-                    enqueue_start = time.perf_counter()
-                    for reservation_id in reservation_ids:
-                        cur.execute(
-                            """
-                            INSERT INTO order_terminalization_tasks (
-                                order_id, reservation_id, action, status, attempt_count
-                            ) VALUES (%s, %s, %s, 'queued', 0)
-                            RETURNING task_id
-                            """,
-                            (order.id, reservation_id, action),
-                        )
-                        task = cur.fetchone()
-                        cur.execute(
-                            """
-                            INSERT INTO order_terminalization_task_events (
-                                task_id, order_id, reservation_id, action, event_type, attempt_count
-                            ) VALUES (%s, %s, %s, %s, 'queued', 0)
-                            """,
-                            (task["task_id"], order.id, reservation_id, action),
-                        )
-                    enqueue_task_ms = (time.perf_counter() - enqueue_start) * 1000
                     conn.commit()
                     db_logger.info(
                         "event=order_service_order_db order_id=%s operation=create order_db_ms=%.2f result=%s",
@@ -166,12 +139,10 @@ class OrderPostgresUnitOfWork:
                         result,
                     )
                     db_logger.info(
-                        "event=order_service_enqueue_task order_id=%s action=%s reservation_count=%s order_db_ms=%.2f enqueue_task_ms=%.2f total_create_ms=%.2f result=success",
+                        "event=order_service_order_created order_id=%s reservation_count=%s order_db_ms=%.2f total_create_ms=%.2f result=success",
                         order.id,
-                        action,
                         len(reservation_ids),
                         order_db_ms,
-                        enqueue_task_ms,
                         (time.perf_counter() - total_start) * 1000,
                     )
                     return order
@@ -185,11 +156,10 @@ class OrderPostgresUnitOfWork:
         reservation_ids: list[int],
     ) -> Order | None:
         order_update_ms = 0.0
-        enqueue_task_ms = 0.0
         total_start = time.perf_counter()
         with start_span(
             "order-service",
-            "order db finalize and enqueue",
+            "order db finalize",
             attributes={
                 "db.system": "postgresql",
                 "flashsale.order_id": order_id,
@@ -226,36 +196,14 @@ class OrderPostgresUnitOfWork:
                     )
                     row = cur.fetchone()
                     order_update_ms = (time.perf_counter() - update_start) * 1000
-                    enqueue_start = time.perf_counter()
-                    for reservation_id in reservation_ids:
-                        cur.execute(
-                            """
-                            INSERT INTO order_terminalization_tasks (
-                                order_id, reservation_id, action, status, attempt_count
-                            ) VALUES (%s, %s, %s, 'queued', 0)
-                            RETURNING task_id
-                            """,
-                            (order_id, reservation_id, action),
-                        )
-                        task = cur.fetchone()
-                        cur.execute(
-                            """
-                            INSERT INTO order_terminalization_task_events (
-                                task_id, order_id, reservation_id, action, event_type, attempt_count
-                            ) VALUES (%s, %s, %s, %s, 'queued', 0)
-                            """,
-                            (task["task_id"], order_id, reservation_id, action),
-                        )
-                    enqueue_task_ms = (time.perf_counter() - enqueue_start) * 1000
                     conn.commit()
                     db_logger.info(
-                        "event=order_service_enqueue_task order_id=%s action=%s reservation_count=%s "
-                        "order_db_ms=%.2f enqueue_task_ms=%.2f total_finalize_ms=%.2f result=success",
+                        "event=order_service_order_finalized order_id=%s action=%s reservation_count=%s "
+                        "order_db_ms=%.2f total_finalize_ms=%.2f result=success",
                         order_id,
                         action,
                         len(reservation_ids),
                         order_update_ms,
-                        enqueue_task_ms,
                         (time.perf_counter() - total_start) * 1000,
                     )
                     return to_order(row)

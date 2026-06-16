@@ -213,16 +213,10 @@ class FakeOrderRepository:
 class FakeUnitOfWork:
     def __init__(self) -> None:
         self.orders = FakeOrderRepository()
-        self.tasks = _FakeTasks()
 
-    def create_order_and_enqueue_terminalization(self, **kw: object) -> object:
+    def create_order(self, **kw: object) -> object:
         order = self.orders.create(**kw)
         return order
-
-
-class _FakeTasks:
-    def enqueue(self, **kw: object) -> None:
-        pass
 
 
 class FakeUserDirectoryClient:

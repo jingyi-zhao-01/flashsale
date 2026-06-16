@@ -4,12 +4,9 @@ from decimal import Decimal
 from typing import Any, cast
 
 from app.domain.order import Order, OrderItem
-from app.domain.reservation_terminalization_task import ReservationTerminalizationTask
 from app.domain.statuses import (
     OrderStatus,
     PaymentStatus,
-    TaskStatus,
-    TerminalizationAction,
 )
 
 
@@ -31,20 +28,6 @@ def to_order(row: Any) -> Order:
             for item in row["items_json"]
         ),
         reservation_ids=tuple(int(value) for value in row["reservation_ids_json"]),
-    )
-
-
-def to_task(row: Any) -> ReservationTerminalizationTask:
-    return ReservationTerminalizationTask(
-        task_id=int(row["task_id"]),
-        order_id=int(row["order_id"]),
-        reservation_id=int(row["reservation_id"]),
-        action=cast(TerminalizationAction, row["action"]),
-        status=cast(TaskStatus, row["status"]),
-        attempt_count=int(row["attempt_count"]),
-        available_at=_created_at(row["available_at"]),
-        created_at=_created_at(row["created_at"]),
-        last_error=cast(str | None, row["last_error"]),
     )
 
 
