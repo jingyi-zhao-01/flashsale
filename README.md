@@ -128,6 +128,7 @@ See [`docs/testing.md`](docs/testing.md) for the full test catalog and run instr
 - [Architecture & ADRs](docs/adrs/)
 - [ADR 0004: Prisma schema and migration management](docs/adrs/0004-manage-flashsale-schema-and-migrations-with-python-prisma.md)
 - [ADR 0005: Redis reserve admission control](docs/adrs/0005-redis-reserve-admission-control.md)
+- [ADR 0007: Kafka terminalization queue](docs/adrs/0007-kafka-terminalization-queue.md)
 - [Test Catalog](docs/testing.md)
 - [Release Contract](release/flashsale-release.yaml)
 - [Quality Contract](release/flashsale-quality-contract.yaml)

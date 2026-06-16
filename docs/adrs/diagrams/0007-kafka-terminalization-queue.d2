@@ -1,0 +1,135 @@
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    theme-id: 300
+  }
+}
+
+classes: {
+  plane: {
+    style: {
+      stroke: "#7d8da1"
+      fill: "#f8fafc"
+      border-radius: 12
+    }
+  }
+  service: {
+    shape: rectangle
+    style: {
+      fill: "#dbeafe"
+      stroke: "#2563eb"
+      border-radius: 8
+    }
+  }
+  worker: {
+    shape: rectangle
+    style: {
+      fill: "#dcfce7"
+      stroke: "#16a34a"
+      border-radius: 8
+    }
+  }
+  kafka: {
+    shape: queue
+    style: {
+      fill: "#ffedd5"
+      stroke: "#ea580c"
+    }
+  }
+  db: {
+    shape: cylinder
+    style: {
+      fill: "#ede9fe"
+      stroke: "#7c3aed"
+    }
+  }
+  danger: {
+    style: {
+      fill: "#fee2e2"
+      stroke: "#dc2626"
+      stroke-width: 3
+      border-radius: 8
+    }
+  }
+}
+
+client: {
+  class: plane
+  label: "Client"
+  web: {
+    class: service
+    label: "Client\nPOST /orders"
+  }
+}
+
+control: {
+  class: plane
+  label: "Order control plane"
+  api: {
+    class: service
+    label: "order-service API\ncreate order + outbox row"
+  }
+  publisher: {
+    class: worker
+    label: "outbox publisher\npublish terminalization command"
+  }
+}
+
+kafka_plane: {
+  class: plane
+  label: "Kafka queue plane"
+  terminalization: {
+    class: kafka
+    label: "flashsale.order.terminalization.v1\nkey = reservation_id"
+  }
+  retry: {
+    class: kafka
+    label: "flashsale.order.terminalization.retry.v1\nbackoff + attempt count"
+  }
+  dlq: {
+    class: kafka
+    label: "flashsale.order.terminalization.dlq.v1\npoison commands"
+  }
+}
+
+execution: {
+  class: plane
+  label: "Execution plane"
+  consumer: {
+    class: worker
+    label: "terminalization consumer\nat-least-once processing"
+  }
+  product: {
+    class: service
+    label: "product-service\nconfirm / cancel reservation"
+  }
+}
+
+state: {
+  class: plane
+  label: "State plane"
+  postgres: {
+    class: db
+    label: "Postgres\norders + outbox + terminalization state"
+  }
+}
+
+notes: {
+  class: danger
+  label: "Kafka gives at-least-once delivery.\nExactly-once business behavior still comes from\nidempotent state transitions and replay-safe handlers."
+}
+
+client.web -> control.api: "create order"
+control.api -> state.postgres: "single DB transaction\norder + outbox"
+state.postgres -> control.publisher: "unpublished outbox rows"
+control.publisher -> kafka_plane.terminalization: "produce command"
+kafka_plane.terminalization -> execution.consumer: "consume by group"
+execution.consumer -> execution.product: "confirm / cancel"
+execution.consumer -> state.postgres: "update durable state"
+execution.consumer -> kafka_plane.retry: "retryable failure"
+kafka_plane.retry -> execution.consumer: "delayed retry"
+execution.consumer -> kafka_plane.dlq: "max attempts exceeded"
+execution.consumer -> notes: "commit offset only after durable business update"
+
