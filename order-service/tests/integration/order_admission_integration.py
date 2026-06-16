@@ -208,7 +208,7 @@ class AdmissionGateIntegrationTest(unittest.TestCase):
         self.assertEqual(replay["payment_status"], "succeeded")
 
     # ------------------------------------------------------------------
-    # 6. process-terminalizations does NOT need an admission permit
+    # 6. worker terminalization does NOT need an admission permit
     # ------------------------------------------------------------------
 
     def test_terminalization_worker_succeeds_when_gate_is_saturated(self) -> None:
@@ -216,8 +216,8 @@ class AdmissionGateIntegrationTest(unittest.TestCase):
         o1 = self._create("term-order-1")
         _redis_saturate(self.product_id, 2)
 
-        result = self.client.process_terminalizations()
-        self.assertGreaterEqual(result.get("succeeded_count", 0), 1)
+        confirmed = self.client.wait_for_order_status(int(o1["id"]), "confirmed")
+        self.assertEqual(confirmed["payment_status"], "succeeded")
 
     # ------------------------------------------------------------------
     # 7. idempotency replay bypasses admission gate

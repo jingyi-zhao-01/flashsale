@@ -23,6 +23,49 @@ services:
       timeout: 2s
       retries: 10
 
+  flashsale-kafka:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.7
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 256M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://flashsale-kafka:9092
+    ports:
+      - "19092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info >/dev/null 2>&1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  flashsale-kafka-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.7
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - |
+        rpk topic create \
+          -X brokers=flashsale-kafka:9092 \
+          flashsale.order.terminalization.v1 \
+          flashsale.order.terminalization.retry.v1 \
+          flashsale.order.terminalization.dlq.v1 || true
+    depends_on:
+      flashsale-kafka:
+        condition: service_healthy
+
   user-service:
     build:
       context: .
@@ -61,6 +104,9 @@ services:
       ORDER_PENDING_TTL_SECONDS: 1
       REDIS_URL: redis://flashsale-redis:6379/0
       RESERVE_ADMISSION_MAX_INFLIGHT: 2
+      TERMINALIZATION_QUEUE_BACKEND: kafka
+      KAFKA_BOOTSTRAP_SERVERS: flashsale-kafka:9092
+      KAFKA_TERMINALIZATION_CONSUMER_POLL_SECONDS: 0.1
     ports:
       - "18003:8003"
     depends_on:
@@ -68,7 +114,43 @@ services:
         condition: service_healthy
       flashsale-redis:
         condition: service_healthy
+      flashsale-kafka:
+        condition: service_healthy
+      flashsale-kafka-init:
+        condition: service_completed_successfully
       product-service:
         condition: service_started
       user-service:
+        condition: service_started
+
+  order-worker:
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    command: ["python", "-m", "app.entrypoints.worker_main"]
+    environment:
+      DATABASE_URL: postgresql://test:test@flashsale-db:5432/flashsale
+      DB_SCHEMA: order_service
+      PRODUCT_SERVICE_URL: http://product-service:8002
+      USER_SERVICE_URL: http://user-service:8001
+      ORDER_PENDING_TTL_SECONDS: 1
+      REDIS_URL: redis://flashsale-redis:6379/0
+      RESERVE_ADMISSION_MAX_INFLIGHT: 2
+      TERMINALIZATION_QUEUE_BACKEND: kafka
+      KAFKA_BOOTSTRAP_SERVERS: flashsale-kafka:9092
+      KAFKA_TERMINALIZATION_CONSUMER_POLL_SECONDS: 0.1
+    depends_on:
+      flashsale-db:
+        condition: service_healthy
+      flashsale-redis:
+        condition: service_healthy
+      flashsale-kafka:
+        condition: service_healthy
+      flashsale-kafka-init:
+        condition: service_completed_successfully
+      product-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      order-service:
         condition: service_started

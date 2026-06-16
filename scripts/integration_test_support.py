@@ -157,6 +157,25 @@ class FlashsaleIntegrationClient:
     def get_order(self, order_id: int) -> dict[str, Any]:
         return request_json("GET", f"{BASE_ORDER_URL}/orders/{order_id}")
 
+    def wait_for_order_status(
+        self,
+        order_id: int,
+        expected_status: str,
+        *,
+        attempts: int = 30,
+        delay_seconds: float = 0.2,
+    ) -> dict[str, Any]:
+        last_order: dict[str, Any] | None = None
+        for _ in range(attempts):
+            last_order = self.get_order(order_id)
+            if last_order.get("status") == expected_status:
+                return last_order
+            time.sleep(delay_seconds)
+        raise AssertionError(
+            f"Timed out waiting for order {order_id} status {expected_status}; "
+            f"last order: {last_order}"
+        )
+
     def list_orders(self) -> list[dict[str, Any]]:
         return request_json("GET", f"{BASE_ORDER_URL}/orders")  # type: ignore[return-value]
 

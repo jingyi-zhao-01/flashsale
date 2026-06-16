@@ -38,8 +38,7 @@ class OrderServiceComposeIntegrationTest(unittest.TestCase):
             quantity=2,
             idempotency_key="compose-order-1",
         )
-        self.client.process_terminalizations()
-        order = self.client.get_order(int(response["id"]))
+        order = self.client.wait_for_order_status(int(response["id"]), "confirmed")
 
         self.assertEqual(order["status"], "confirmed")
         self.assertEqual(order["payment_status"], "succeeded")
@@ -52,8 +51,7 @@ class OrderServiceComposeIntegrationTest(unittest.TestCase):
             quantity=2,
             idempotency_key="compose-order-webhook",
         )
-        self.client.process_terminalizations()
-        confirmed = self.client.get_order(int(order["id"]))
+        confirmed = self.client.wait_for_order_status(int(order["id"]), "confirmed")
 
         replay = self.client.payment_webhook(
             order_id=int(order["id"]),
