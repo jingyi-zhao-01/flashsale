@@ -17,6 +17,8 @@ WAIT_HTTP_RETRIES="${WAIT_HTTP_RETRIES:-40}"
 WAIT_HTTP_SLEEP_SEC="${WAIT_HTTP_SLEEP_SEC:-1}"
 CURL_CONNECT_TIMEOUT_SEC="${CURL_CONNECT_TIMEOUT_SEC:-2}"
 CURL_MAX_TIME_SEC="${CURL_MAX_TIME_SEC:-3}"
+WAIT_DEPENDENCY_RETRIES="${WAIT_DEPENDENCY_RETRIES:-30}"
+WAIT_DEPENDENCY_SLEEP_SEC="${WAIT_DEPENDENCY_SLEEP_SEC:-2}"
 USE_K8S_PORT_FORWARD="${USE_K8S_PORT_FORWARD:-false}"
 USER_LOCAL_PORT="${USER_LOCAL_PORT:-18080}"
 PRODUCT_LOCAL_PORT="${PRODUCT_LOCAL_PORT:-18081}"
@@ -91,6 +93,44 @@ wait_http() {
   exit 1
 }
 
+wait_dependency_http() {
+  local method="$1"
+  local url="$2"
+  local name="$3"
+  local accepted_csv="$4"
+  local data="${5:-}"
+  local i
+  local status
+  local curl_args=(
+    --connect-timeout "$CURL_CONNECT_TIMEOUT_SEC"
+    --max-time "$CURL_MAX_TIME_SEC"
+    -sS
+    -o /dev/null
+    -w "%{http_code}"
+    -X "$method"
+  )
+
+  if [[ -n "$data" ]]; then
+    curl_args+=(
+      -H "Content-Type: application/json"
+      --data "$data"
+    )
+  fi
+
+  echo "Waiting for dependency readiness: ${name} via ${method} ${url}"
+  for i in $(seq 1 "$WAIT_DEPENDENCY_RETRIES"); do
+    status="$(curl "${curl_args[@]}" "$url" 2>/dev/null || true)"
+    if [[ ",${accepted_csv}," == *",${status},"* ]]; then
+      echo "Dependency ready: ${name} via ${method} ${url} (status ${status})"
+      return 0
+    fi
+    echo "Still waiting for ${name} (${i}/${WAIT_DEPENDENCY_RETRIES}): status=${status:-curl-failed}"
+    sleep "$WAIT_DEPENDENCY_SLEEP_SEC"
+  done
+  echo "Timed out waiting for dependency readiness: ${name} via ${method} ${url}"
+  exit 1
+}
+
 cleanup() {
   if [[ "${#PORT_FORWARD_PIDS[@]}" -gt 0 ]]; then
     for pid in "${PORT_FORWARD_PIDS[@]}"; do
@@ -159,6 +199,13 @@ fi
 wait_http "$USER_URL" "user-service"
 wait_http "$PRODUCT_URL" "product-service"
 wait_http "$BASE_URL" "order-service"
+
+# The service health endpoints are intentionally process-only and may return 200
+# before the shared database is reachable. Probe DB-backed endpoints to avoid
+# starting k6 during that transient window.
+wait_dependency_http "GET" "$USER_URL/users" "user-service database" "200"
+wait_dependency_http "GET" "$PRODUCT_URL/products" "product-service database" "200"
+wait_dependency_http "POST" "$BASE_URL/admin/reset?wait=false" "order-service database" "202,204"
 
 K6_ARGS=()
 if [[ -n "$PERF_RESULTS_DIR" ]]; then
