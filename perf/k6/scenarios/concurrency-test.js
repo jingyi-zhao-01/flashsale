@@ -22,6 +22,17 @@ const REPORT_INTERVAL_MS = Number(__ENV.REPORT_INTERVAL_MS || 5000);
 
 // 这些 profile 默认值定义了不同压测档位的目标工作点。
 const PROFILE_DEFAULTS = {
+  seedlow: {
+    tps: 2,
+    duration: "2m",
+    p50: 2000,
+    p90: 3000,
+    p99: 5000,
+    max5xxRate: 0,
+    productCount: 3,
+    userCount: 12,
+    initialStock: 20,
+  },
   smoke: {
     tps: 10,
     duration: "3m",

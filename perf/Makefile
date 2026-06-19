@@ -1,4 +1,4 @@
-.PHONY: concurrency-smoke concurrency-idempotency-lite concurrency-hotspot-100tps concurrency-baseline concurrency-stress100 concurrency-stress200 concurrency-hotspot
+.PHONY: concurrency-seed-low concurrency-smoke concurrency-idempotency-lite concurrency-hotspot-100tps concurrency-baseline concurrency-stress100 concurrency-stress200 concurrency-hotspot
 
 # Shared wrapper and scenario entrypoints used by the perf targets below.
 LOADTEST_WRAPPER := bash ./scripts/loadtest-k6.sh
@@ -13,6 +13,9 @@ K6_P99_THRESHOLD_MS ?= 5000
 MAX_5XX_RATE ?= 0
 
 # Profile-specific perf lanes used by CI and manual runs.
+concurrency-seed-low:
+	LOADTEST_SCRIPT=$(CONCURRENCY_SCENARIO) $(LOADTEST_WRAPPER) -e PROFILE=seedlow -e K6_P50_THRESHOLD_MS=2000 -e K6_P90_THRESHOLD_MS=3000 -e K6_P99_THRESHOLD_MS=5000 -e MAX_5XX_RATE=0 -e DRAIN_TERMINALIZATIONS_FIRST=false
+
 concurrency-smoke:
 	LOADTEST_SCRIPT=$(CONCURRENCY_SCENARIO) $(LOADTEST_WRAPPER) -e PROFILE=smoke -e K6_P50_THRESHOLD_MS=2000 -e K6_P90_THRESHOLD_MS=3000 -e K6_P99_THRESHOLD_MS=5000 -e MAX_5XX_RATE=0 -e DRAIN_TERMINALIZATIONS_FIRST=false
 

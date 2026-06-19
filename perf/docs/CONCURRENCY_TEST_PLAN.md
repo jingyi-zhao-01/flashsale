@@ -12,6 +12,17 @@ This plan uses only K6 and existing admin/test endpoints.
 
 All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.js` and are exposed in Make targets.
 
+1. `concurrency-seed-low`
+
+- TPS: 2
+- Duration: 2m
+- Low-risk warm-up mode: only a few users/products are created to seed traces, metrics, and async terminalization signals.
+- P50 < 2s
+- P90 < 3s
+- P99 < 5s
+- 5xx rate = 0
+- Oversell = 0
+
 1. `concurrency-smoke`
 
 - TPS: 10
@@ -76,6 +87,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 
 From repo root:
 
+- `make concurrency-seed-low`
 - `make concurrency-smoke`
 - `make concurrency-hotspot-100tps`
 - `make concurrency-baseline`
@@ -87,13 +99,14 @@ From repo root:
 
 Run in this order:
 
-1. Smoke
-2. Idempotency Lite
-3. Hotspot 100 TPS
-4. Baseline
-5. Stress100
-6. Stress200
-7. Hotspot
+1. Seed Low
+2. Smoke
+3. Idempotency Lite
+4. Hotspot 100 TPS
+5. Baseline
+6. Stress100
+7. Stress200
+8. Hotspot
 
 Repeat each profile 3 times and compare medians (especially P99 and 5xx).
 
