@@ -21,10 +21,8 @@ from app.config import (
     ORDER_CREATE_MAX_IN_FLIGHT,
     REDIS_URL,
     REDIS_TOKEN,
-    TERMINALIZATION_QUEUE_BACKEND,
 )
 from app.ports.reserve_admission_gate import ReserveAdmissionGate
-from app.entrypoints.worker_loop import TerminalizationWorkerLoop
 from app.models import (
     ErrorResponse,
     ExpireOrdersResult,
@@ -90,11 +88,9 @@ def build_http_api(
             max_connections=128,
         ),
     )
-    terminalization = None
-    if TERMINALIZATION_QUEUE_BACKEND == "kafka":
-        terminalization = KafkaTerminalizationCommandPublisher(
-            KafkaTerminalizationProducer()
-        )
+    terminalization = KafkaTerminalizationCommandPublisher(
+        KafkaTerminalizationProducer()
+    )
     runtime = OrderRuntime(
         uow=uow,
         users=UserHttpClient(
@@ -108,7 +104,6 @@ def build_http_api(
         admission=admission,
         terminalization=terminalization,
     )
-    worker = TerminalizationWorkerLoop(runtime.process_tasks.process)
     orders_limiter = anyio.CapacityLimiter(ORDER_CREATE_MAX_IN_FLIGHT)
     repository = uow
     app.state.repository = repository
@@ -119,15 +114,11 @@ def build_http_api(
     def startup() -> None:
         try:
             uow.init_db()
-            if run_background_worker and TERMINALIZATION_QUEUE_BACKEND != "kafka":
-                worker.start()
         except Exception:
             pass
 
     @app.on_event("shutdown")
     def shutdown() -> None:
-        if run_background_worker and TERMINALIZATION_QUEUE_BACKEND != "kafka":
-            worker.stop()
         dependency_http_client.close()
 
     async def order_capacity_guard() -> None:
