@@ -20,7 +20,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 - P50 < 2s
 - P90 < 3s
 - P99 < 5s
-- 5xx rate = 0
+- 5xx rate < 1%
 - Oversell = 0
 
 1. `concurrency-smoke`
@@ -31,7 +31,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 - P50 < 100ms
 - P90 < 200ms
 - P99 < 500ms
-- 5xx rate = 0
+- 5xx rate < 1%
 - Oversell = 0
 
 1. `concurrency-hotspot-100tps`
@@ -42,7 +42,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 - P50 < 100ms
 - P90 < 200ms
 - P99 < 500ms
-- 5xx rate = 0
+- 5xx rate < 1%
 - Oversell = 0
 
 1. `concurrency-baseline`
@@ -62,7 +62,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 - P50 < 150ms
 - P90 < 500ms
 - P99 < 1.2s
-- 5xx rate < 2%
+- 5xx rate < 1%
 - Oversell = 0
 
 1. `concurrency-stress200`
@@ -72,7 +72,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 - P50 < 150ms
 - P90 < 500ms
 - P99 < 2s
-- 5xx rate < 2%
+- 5xx rate < 1%
 - Oversell = 0
 
 1. `concurrency-hotspot`
@@ -81,6 +81,7 @@ All profiles run via `application/flashsale/perf/k6/scenarios/concurrency-test.j
 - TPS: 100 (default, override if needed)
 - Duration: 3m
 - P99 target relaxed to 2s
+- 5xx rate < 1%
 - Oversell = 0 (must pass)
 
 ## How to Run
