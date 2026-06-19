@@ -1,16 +1,9 @@
-import sys
-import types
 import unittest
 from inspect import iscoroutinefunction
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
-psycopg_stub = types.ModuleType("psycopg")
-psycopg_rows_stub = types.ModuleType("psycopg.rows")
-psycopg_stub.connect = None
-psycopg_rows_stub.dict_row = object()
-sys.modules.setdefault("psycopg", psycopg_stub)
-sys.modules.setdefault("psycopg.rows", psycopg_rows_stub)
+from tests.unit import app_import_stubs as _app_import_stubs
 
 from app.main import app
 
