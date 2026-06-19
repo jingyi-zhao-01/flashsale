@@ -89,6 +89,24 @@ export function checkStatus(res, label, acceptedStatuses) {
   });
 }
 
+export function requireStatus(res, label, acceptedStatuses) {
+  const ok = checkStatus(res, label, acceptedStatuses);
+  if (ok) {
+    return res;
+  }
+
+  const allowed = Array.isArray(acceptedStatuses)
+    ? acceptedStatuses.join(",")
+    : `${acceptedStatuses}`;
+  const body =
+    typeof res.body === "string" && res.body.length > 0
+      ? res.body.slice(0, 400)
+      : "<empty>";
+  throw new Error(
+    `${label} failed: status=${res.status} expected=${allowed} body=${body}`,
+  );
+}
+
 export function resetService(url, serviceName, timeout, tags = {}, options = {}) {
   const wait = options.wait !== false;
   const query = wait ? "" : "?wait=false";
@@ -130,13 +148,12 @@ export function resetAllServices({
 
 export function seedProducts(productUrl, timeout) {
   const res = http.post(`${productUrl}/admin/seed`, null, { timeout });
-  checkStatus(res, "products seeded", 204);
-  return res;
+  return requireStatus(res, "products seeded", 204);
 }
 
 export function createUser({ userUrl, timeout, email, name, postJson }) {
   const res = postJson(`${userUrl}/users`, { email, name });
-  checkStatus(res, "setup user created", [200, 201]);
+  requireStatus(res, "setup user created", [200, 201]);
   return res.json();
 }
 
@@ -149,7 +166,7 @@ export function createProduct({
   label = "setup product created",
 }) {
   const res = postJson(`${productUrl}/products`, { name, price, stock });
-  checkStatus(res, label, [200, 201]);
+  requireStatus(res, label, [200, 201]);
   return res.json();
 }
 
