@@ -1,7 +1,10 @@
 import unittest
 from datetime import datetime, timezone
 
-from app.adapters.kafka_terminalization import KafkaTerminalizationCommandPublisher
+from app.adapters.kafka_terminalization import (
+    KafkaTerminalizationCommandPublisher,
+    kafka_connection_config,
+)
 from app.domain.terminalization_command import TerminalizationCommand
 
 
@@ -14,6 +17,29 @@ class FakeProducer:
 
 
 class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
+    def test_connection_config_keeps_plaintext_local_defaults_minimal(self) -> None:
+        config = kafka_connection_config("flashsale-kafka:9092")
+
+        self.assertEqual(config, {"bootstrap.servers": "flashsale-kafka:9092"})
+
+    def test_connection_config_includes_sasl_and_client_cert_fields(self) -> None:
+        config = kafka_connection_config(
+            "example.aivencloud.com:19154",
+            security_protocol="SASL_SSL",
+            username="avnadmin",
+            password="secret",
+            access_cert="---CERT---",
+            access_key="---KEY---",
+        )
+
+        self.assertEqual(config["bootstrap.servers"], "example.aivencloud.com:19154")
+        self.assertEqual(config["security.protocol"], "SASL_SSL")
+        self.assertEqual(config["sasl.mechanism"], "PLAIN")
+        self.assertEqual(config["sasl.username"], "avnadmin")
+        self.assertEqual(config["sasl.password"], "secret")
+        self.assertEqual(config["ssl.certificate.pem"], "---CERT---")
+        self.assertEqual(config["ssl.key.pem"], "---KEY---")
+
     def test_publish_writes_primary_commands_keyed_by_reservation(self) -> None:
         producer = FakeProducer()
         publisher = KafkaTerminalizationCommandPublisher(

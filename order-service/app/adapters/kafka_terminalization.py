@@ -4,12 +4,17 @@ from threading import Event
 from typing import Any
 
 from app.config import (
+    KAFKA_ACCESS_CERT,
+    KAFKA_ACCESS_KEY,
     KAFKA_BOOTSTRAP_SERVERS,
+    KAFKA_PASSWORD,
+    KAFKA_SECURITY_PROTOCOL,
     KAFKA_TERMINALIZATION_CONSUMER_GROUP,
     KAFKA_TERMINALIZATION_CONSUMER_POLL_SECONDS,
     KAFKA_TERMINALIZATION_DLQ_TOPIC,
     KAFKA_TERMINALIZATION_RETRY_TOPIC,
     KAFKA_TERMINALIZATION_TOPIC,
+    KAFKA_USERNAME,
 )
 from app.domain.statuses import TerminalizationAction
 from app.domain.terminalization_command import (
@@ -24,6 +29,35 @@ class KafkaUnavailableError(RuntimeError):
     pass
 
 
+def kafka_connection_config(
+    bootstrap_servers: str,
+    security_protocol: str = KAFKA_SECURITY_PROTOCOL,
+    username: str = KAFKA_USERNAME,
+    password: str = KAFKA_PASSWORD,
+    access_cert: str = KAFKA_ACCESS_CERT,
+    access_key: str = KAFKA_ACCESS_KEY,
+) -> dict[str, str]:
+    if not bootstrap_servers:
+        raise KafkaUnavailableError("KAFKA_BOOTSTRAP_SERVERS is required")
+
+    config = {
+        "bootstrap.servers": bootstrap_servers,
+    }
+    if security_protocol:
+        config["security.protocol"] = security_protocol
+    if username or password:
+        config["sasl.mechanism"] = "PLAIN"
+        if username:
+            config["sasl.username"] = username
+        if password:
+            config["sasl.password"] = password
+    if access_cert:
+        config["ssl.certificate.pem"] = access_cert
+    if access_key:
+        config["ssl.key.pem"] = access_key
+    return config
+
+
 class KafkaTerminalizationProducer:
     def __init__(
         self,
@@ -33,13 +67,11 @@ class KafkaTerminalizationProducer:
         if producer is not None:
             self._producer = producer
             return
-        if not bootstrap_servers:
-            raise KafkaUnavailableError("KAFKA_BOOTSTRAP_SERVERS is required")
         try:
             from confluent_kafka import Producer
         except ImportError as exc:  # pragma: no cover - dependency guard
             raise KafkaUnavailableError("confluent-kafka is not installed") from exc
-        self._producer = Producer({"bootstrap.servers": bootstrap_servers})
+        self._producer = Producer(kafka_connection_config(bootstrap_servers))
 
     def publish(self, topic: str, command: TerminalizationCommand) -> None:
         errors: list[BaseException] = []
@@ -134,20 +166,16 @@ class KafkaTerminalizationConsumer:
         if consumer is not None:
             self._consumer = consumer
             return
-        if not bootstrap_servers:
-            raise KafkaUnavailableError("KAFKA_BOOTSTRAP_SERVERS is required")
         try:
             from confluent_kafka import Consumer
         except ImportError as exc:  # pragma: no cover - dependency guard
             raise KafkaUnavailableError("confluent-kafka is not installed") from exc
-        self._consumer = Consumer(
-            {
-                "bootstrap.servers": bootstrap_servers,
-                "group.id": group_id,
-                "enable.auto.commit": False,
-                "auto.offset.reset": "earliest",
-            }
-        )
+        self._consumer = Consumer({
+            **kafka_connection_config(bootstrap_servers),
+            "group.id": group_id,
+            "enable.auto.commit": False,
+            "auto.offset.reset": "earliest",
+        })
 
     def subscribe(self) -> None:
         self._consumer.subscribe(
