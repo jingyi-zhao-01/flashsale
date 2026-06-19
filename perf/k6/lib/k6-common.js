@@ -1,6 +1,13 @@
 import http from "k6/http";
+import { sleep } from "k6";
 import { check } from "k6";
 import exec from "k6/execution";
+
+const TRANSIENT_DB_UNAVAILABLE_STATUS = 503;
+const TRANSIENT_DB_UNAVAILABLE_DETAIL = '"detail":"database unavailable"';
+const TRANSIENT_SETUP_RETRY_DELAY_SECONDS = Number(
+  __ENV.TRANSIENT_SETUP_RETRY_DELAY_SECONDS || 0.5,
+);
 
 export function envString(name, fallback) {
   return __ENV[name] || fallback;
@@ -107,6 +114,28 @@ export function requireStatus(res, label, acceptedStatuses) {
   );
 }
 
+export function isTransientDatabaseUnavailable(res) {
+  return (
+    res.status === TRANSIENT_DB_UNAVAILABLE_STATUS &&
+    typeof res.body === "string" &&
+    res.body.includes(TRANSIENT_DB_UNAVAILABLE_DETAIL)
+  );
+}
+
+export function retryOnceOnTransientDatabaseUnavailable(label, makeRequest) {
+  let res = makeRequest();
+  if (!isTransientDatabaseUnavailable(res)) {
+    return res;
+  }
+
+  console.warn(
+    `[k6-setup-retry] ${label} hit transient database unavailable; retrying once after ${TRANSIENT_SETUP_RETRY_DELAY_SECONDS}s`,
+  );
+  sleep(TRANSIENT_SETUP_RETRY_DELAY_SECONDS);
+  res = makeRequest();
+  return res;
+}
+
 export function resetService(url, serviceName, timeout, tags = {}, options = {}) {
   const wait = options.wait !== false;
   const query = wait ? "" : "?wait=false";
@@ -147,12 +176,16 @@ export function resetAllServices({
 }
 
 export function seedProducts(productUrl, timeout) {
-  const res = http.post(`${productUrl}/admin/seed`, null, { timeout });
+  const res = retryOnceOnTransientDatabaseUnavailable("products seeded", () =>
+    http.post(`${productUrl}/admin/seed`, null, { timeout }),
+  );
   return requireStatus(res, "products seeded", 204);
 }
 
 export function createUser({ userUrl, timeout, email, name, postJson }) {
-  const res = postJson(`${userUrl}/users`, { email, name });
+  const res = retryOnceOnTransientDatabaseUnavailable("setup user created", () =>
+    postJson(`${userUrl}/users`, { email, name }),
+  );
   requireStatus(res, "setup user created", [200, 201]);
   return res.json();
 }
@@ -165,7 +198,9 @@ export function createProduct({
   postJson,
   label = "setup product created",
 }) {
-  const res = postJson(`${productUrl}/products`, { name, price, stock });
+  const res = retryOnceOnTransientDatabaseUnavailable(label, () =>
+    postJson(`${productUrl}/products`, { name, price, stock }),
+  );
   requireStatus(res, label, [200, 201]);
   return res.json();
 }
