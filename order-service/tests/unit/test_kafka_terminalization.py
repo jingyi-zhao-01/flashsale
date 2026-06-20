@@ -28,8 +28,8 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
             security_protocol="SASL_SSL",
             username="avnadmin",
             password="secret",
-            access_cert="---CERT---",
-            access_key="---KEY---",
+            access_cert="-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
+            access_key="-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
         )
 
         self.assertEqual(config["bootstrap.servers"], "example.aivencloud.com:19154")
@@ -37,8 +37,30 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
         self.assertEqual(config["sasl.mechanism"], "PLAIN")
         self.assertEqual(config["sasl.username"], "avnadmin")
         self.assertEqual(config["sasl.password"], "secret")
-        self.assertEqual(config["ssl.certificate.pem"], "---CERT---")
-        self.assertEqual(config["ssl.key.pem"], "---KEY---")
+        self.assertEqual(
+            config["ssl.certificate.pem"],
+            "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
+        )
+        self.assertEqual(
+            config["ssl.key.pem"],
+            "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+        )
+
+    def test_connection_config_ignores_redacted_client_cert_fields(self) -> None:
+        config = kafka_connection_config(
+            "example.aivencloud.com:19154",
+            security_protocol="SASL_SSL",
+            username="avnadmin",
+            password="secret",
+            access_cert="<redacted>",
+            access_key="<redacted>",
+        )
+
+        self.assertEqual(config["security.protocol"], "SASL_SSL")
+        self.assertEqual(config["sasl.username"], "avnadmin")
+        self.assertEqual(config["sasl.password"], "secret")
+        self.assertNotIn("ssl.certificate.pem", config)
+        self.assertNotIn("ssl.key.pem", config)
 
     def test_publish_writes_primary_commands_keyed_by_reservation(self) -> None:
         producer = FakeProducer()

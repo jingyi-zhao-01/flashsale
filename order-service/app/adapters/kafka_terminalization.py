@@ -29,6 +29,10 @@ class KafkaUnavailableError(RuntimeError):
     pass
 
 
+def _looks_like_pem(value: str, label: str) -> bool:
+    return value.strip().startswith(f"-----BEGIN {label}-----")
+
+
 def kafka_connection_config(
     bootstrap_servers: str,
     security_protocol: str = KAFKA_SECURITY_PROTOCOL,
@@ -51,9 +55,9 @@ def kafka_connection_config(
             config["sasl.username"] = username
         if password:
             config["sasl.password"] = password
-    if access_cert:
+    if access_cert and _looks_like_pem(access_cert, "CERTIFICATE"):
         config["ssl.certificate.pem"] = access_cert
-    if access_key:
+    if access_key and _looks_like_pem(access_key, "PRIVATE KEY"):
         config["ssl.key.pem"] = access_key
     return config
 
