@@ -9,6 +9,7 @@ from app.config import (
     KAFKA_BOOTSTRAP_SERVERS,
     KAFKA_PASSWORD,
     KAFKA_SECURITY_PROTOCOL,
+    KAFKA_SSL_CA_LOCATION,
     KAFKA_TERMINALIZATION_CONSUMER_GROUP,
     KAFKA_TERMINALIZATION_CONSUMER_POLL_SECONDS,
     KAFKA_TERMINALIZATION_DLQ_TOPIC,
@@ -40,6 +41,7 @@ def kafka_connection_config(
     password: str = KAFKA_PASSWORD,
     access_cert: str = KAFKA_ACCESS_CERT,
     access_key: str = KAFKA_ACCESS_KEY,
+    ssl_ca_location: str = KAFKA_SSL_CA_LOCATION,
 ) -> dict[str, str]:
     if not bootstrap_servers:
         raise KafkaUnavailableError("KAFKA_BOOTSTRAP_SERVERS is required")
@@ -59,6 +61,8 @@ def kafka_connection_config(
         config["ssl.certificate.pem"] = access_cert
     if access_key and _looks_like_pem(access_key, "PRIVATE KEY"):
         config["ssl.key.pem"] = access_key
+    if security_protocol.endswith("SSL") and ssl_ca_location:
+        config["ssl.ca.location"] = ssl_ca_location
     return config
 
 

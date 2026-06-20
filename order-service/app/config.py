@@ -36,6 +36,9 @@ KAFKA_USERNAME = os.getenv("KAFKA_USERNAME", "")
 KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
 KAFKA_ACCESS_CERT = os.getenv("KAFKA_ACCESS_CERT", "")
 KAFKA_ACCESS_KEY = os.getenv("KAFKA_ACCESS_KEY", "")
+KAFKA_SSL_CA_LOCATION = os.getenv(
+    "KAFKA_SSL_CA_LOCATION", "/etc/ssl/certs/ca-certificates.crt"
+)
 KAFKA_TERMINALIZATION_TOPIC = os.getenv(
     "KAFKA_TERMINALIZATION_TOPIC",
     "flashsale.order.terminalization.v1",

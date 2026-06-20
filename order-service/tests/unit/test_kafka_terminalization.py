@@ -38,6 +38,10 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
         self.assertEqual(config["sasl.username"], "avnadmin")
         self.assertEqual(config["sasl.password"], "secret")
         self.assertEqual(
+            config["ssl.ca.location"],
+            "/etc/ssl/certs/ca-certificates.crt",
+        )
+        self.assertEqual(
             config["ssl.certificate.pem"],
             "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
         )
@@ -54,11 +58,13 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
             password="secret",
             access_cert="<redacted>",
             access_key="<redacted>",
+            ssl_ca_location="/custom/ca.pem",
         )
 
         self.assertEqual(config["security.protocol"], "SASL_SSL")
         self.assertEqual(config["sasl.username"], "avnadmin")
         self.assertEqual(config["sasl.password"], "secret")
+        self.assertEqual(config["ssl.ca.location"], "/custom/ca.pem")
         self.assertNotIn("ssl.certificate.pem", config)
         self.assertNotIn("ssl.key.pem", config)
 
