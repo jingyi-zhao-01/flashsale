@@ -7,6 +7,7 @@ from app.config import (
     KAFKA_ACCESS_CERT,
     KAFKA_ACCESS_KEY,
     KAFKA_BOOTSTRAP_SERVERS,
+    KAFKA_CA_CERT,
     KAFKA_PASSWORD,
     KAFKA_SECURITY_PROTOCOL,
     KAFKA_SSL_CA_LOCATION,
@@ -39,6 +40,7 @@ def kafka_connection_config(
     security_protocol: str = KAFKA_SECURITY_PROTOCOL,
     username: str = KAFKA_USERNAME,
     password: str = KAFKA_PASSWORD,
+    ca_cert: str = KAFKA_CA_CERT,
     access_cert: str = KAFKA_ACCESS_CERT,
     access_key: str = KAFKA_ACCESS_KEY,
     ssl_ca_location: str = KAFKA_SSL_CA_LOCATION,
@@ -57,11 +59,17 @@ def kafka_connection_config(
             config["sasl.username"] = username
         if password:
             config["sasl.password"] = password
+    if ca_cert and _looks_like_pem(ca_cert, "CERTIFICATE"):
+        config["ssl.ca.pem"] = ca_cert
     if access_cert and _looks_like_pem(access_cert, "CERTIFICATE"):
         config["ssl.certificate.pem"] = access_cert
     if access_key and _looks_like_pem(access_key, "PRIVATE KEY"):
         config["ssl.key.pem"] = access_key
-    if security_protocol.endswith("SSL") and ssl_ca_location:
+    if (
+        security_protocol.endswith("SSL")
+        and "ssl.ca.pem" not in config
+        and ssl_ca_location
+    ):
         config["ssl.ca.location"] = ssl_ca_location
     return config
 

@@ -22,12 +22,13 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
 
         self.assertEqual(config, {"bootstrap.servers": "flashsale-kafka:9092"})
 
-    def test_connection_config_includes_sasl_and_client_cert_fields(self) -> None:
+    def test_connection_config_includes_sasl_ca_pem_and_client_cert_fields(self) -> None:
         config = kafka_connection_config(
             "example.aivencloud.com:19154",
             security_protocol="SASL_SSL",
             username="avnadmin",
             password="secret",
+            ca_cert="-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----",
             access_cert="-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
             access_key="-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
         )
@@ -38,9 +39,10 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
         self.assertEqual(config["sasl.username"], "avnadmin")
         self.assertEqual(config["sasl.password"], "secret")
         self.assertEqual(
-            config["ssl.ca.location"],
-            "/etc/ssl/certs/ca-certificates.crt",
+            config["ssl.ca.pem"],
+            "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----",
         )
+        self.assertNotIn("ssl.ca.location", config)
         self.assertEqual(
             config["ssl.certificate.pem"],
             "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
@@ -56,6 +58,7 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
             security_protocol="SASL_SSL",
             username="avnadmin",
             password="secret",
+            ca_cert="<redacted>",
             access_cert="<redacted>",
             access_key="<redacted>",
             ssl_ca_location="/custom/ca.pem",
@@ -64,6 +67,7 @@ class KafkaTerminalizationCommandPublisherTest(unittest.TestCase):
         self.assertEqual(config["security.protocol"], "SASL_SSL")
         self.assertEqual(config["sasl.username"], "avnadmin")
         self.assertEqual(config["sasl.password"], "secret")
+        self.assertNotIn("ssl.ca.pem", config)
         self.assertEqual(config["ssl.ca.location"], "/custom/ca.pem")
         self.assertNotIn("ssl.certificate.pem", config)
         self.assertNotIn("ssl.key.pem", config)
