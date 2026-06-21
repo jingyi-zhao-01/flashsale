@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -17,36 +18,13 @@ if TYPE_CHECKING:
     from app.ports.reserve_admission_gate import ReserveAdmissionGate
 
 _KEY_PREFIX = "flashsale:reserve:admission"
-
-_ACQUIRE_PERMIT_SCRIPT = """
--- repair_negative_counter_and_incr
-local key = KEYS[1]
-local ttl = tonumber(ARGV[1])
-local current = redis.call("GET", key)
-if current and tonumber(current) < 0 then
-    redis.call("DEL", key)
-end
-local counter = redis.call("INCR", key)
-if counter == 1 then
-    redis.call("EXPIRE", key, ttl)
-end
-return counter
-"""
-
-_RELEASE_PERMIT_SCRIPT = """
--- safe_release_counter
-local key = KEYS[1]
-local current = redis.call("GET", key)
-if not current then
-    return 0
-end
-local inflight = tonumber(current)
-if inflight <= 1 then
-    redis.call("DEL", key)
-    return 0
-end
-return redis.call("DECR", key)
-"""
+_SCRIPT_DIR = Path(__file__).with_name("lua")
+_ACQUIRE_PERMIT_SCRIPT = (_SCRIPT_DIR / "acquire_permit.lua").read_text(
+    encoding="utf-8"
+)
+_RELEASE_PERMIT_SCRIPT = (_SCRIPT_DIR / "release_permit.lua").read_text(
+    encoding="utf-8"
+)
 
 
 def _key(product_id: int) -> str:
