@@ -23,9 +23,6 @@ class FakeRedis:
 
     def decr(self, key: str) -> int:
         current = self._store.get(key, 0)
-        if current <= 0:
-            self._store[key] = 0
-            return 0
         self._store[key] = current - 1
         return self._store[key]
 
@@ -38,6 +35,32 @@ class FakeRedis:
 
     def ping(self) -> bool:
         return True
+
+    def eval(self, script: str, numkeys: int, *args: object) -> int:
+        if numkeys != 1:
+            raise AssertionError(f"unexpected numkeys={numkeys}")
+        key = str(args[0])
+
+        if "repair_negative_counter_and_incr" in script:
+            ttl = int(args[1])
+            current = self._store.get(key)
+            if current is not None and current < 0:
+                self._store.pop(key, None)
+            counter = self.incr(key)
+            if counter == 1:
+                self.expire(key, ttl)
+            return counter
+
+        if "safe_release_counter" in script:
+            current = self._store.get(key)
+            if current is None:
+                return 0
+            if current <= 1:
+                self._store.pop(key, None)
+                return 0
+            return self.decr(key)
+
+        raise AssertionError(f"unexpected script: {script}")
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +87,12 @@ class RedisReserveAdmissionGateTest(unittest.TestCase):
         self.redis = FakeRedis()
         self.gate = RedisReserveAdmissionGate(self.redis, max_inflight=2)
 
+    def assert_counter_cleared(self, product_id: int) -> None:
+        self.assertIn(
+            self.redis.get(f"flashsale:reserve:admission:{product_id}"),
+            (None, 0),
+        )
+
     def test_acquire_single_product_under_limit(self) -> None:
         acquired = self.gate.acquire([42])
         self.assertEqual(acquired, [42])
@@ -78,7 +107,7 @@ class RedisReserveAdmissionGateTest(unittest.TestCase):
     def test_release_decrements_counter(self) -> None:
         self.gate.acquire([42])
         self.gate.release([42])
-        self.assertEqual(self.redis.get("flashsale:reserve:admission:42"), 0)
+        self.assert_counter_cleared(42)
 
     def test_release_empty_list_does_not_raise(self) -> None:
         self.gate.release([])
@@ -99,7 +128,7 @@ class RedisReserveAdmissionGateTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             self.gate.acquire([99, 42])
         self.assertEqual(ctx.exception.status_code, 429)
-        self.assertEqual(self.redis.get("flashsale:reserve:admission:99"), 0)
+        self.assert_counter_cleared(99)
         self.assertEqual(self.redis.get("flashsale:reserve:admission:42"), 2)
 
     def test_acquire_empty_list_returns_empty(self) -> None:
@@ -120,6 +149,17 @@ class RedisReserveAdmissionGateTest(unittest.TestCase):
         second_exp = self.redis._expirations.get("flashsale:reserve:admission:42")
         # TTL is only set on counter==1, so second INCR should not change it
         self.assertEqual(first_exp, second_exp)
+
+    def test_release_missing_key_does_not_create_negative_counter(self) -> None:
+        self.gate.release([42])
+        self.assert_counter_cleared(42)
+
+    def test_acquire_repairs_negative_counter_before_incrementing(self) -> None:
+        self.redis._store["flashsale:reserve:admission:42"] = -3
+        acquired = self.gate.acquire([42])
+        self.assertEqual(acquired, [42])
+        self.assertEqual(self.redis.get("flashsale:reserve:admission:42"), 1)
+        self.assertIn("flashsale:reserve:admission:42", self.redis._expirations)
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +310,7 @@ class AdmissionGateOrderUseCaseTest(unittest.TestCase):
         sut = self._make_sut(admission=gate)
         command = CreateOrderCommand(user_id=1, items=((42, 1),))
         sut.create_order(command)
-        self.assertEqual(redis.get("flashsale:reserve:admission:42"), 0)
+        self.assertIn(redis.get("flashsale:reserve:admission:42"), (None, 0))
 
     def test_admission_permit_released_after_reserve_failure(self) -> None:
         redis = FakeRedis()
@@ -280,7 +320,7 @@ class AdmissionGateOrderUseCaseTest(unittest.TestCase):
         command = CreateOrderCommand(user_id=1, items=((42, 1),))
         with self.assertRaises(HTTPException):
             sut.create_order(command)
-        self.assertEqual(redis.get("flashsale:reserve:admission:42"), 0)
+        self.assertIn(redis.get("flashsale:reserve:admission:42"), (None, 0))
 
     def test_idempotency_replay_does_not_acquire_admission(self) -> None:
         redis = FakeRedis()
@@ -293,7 +333,7 @@ class AdmissionGateOrderUseCaseTest(unittest.TestCase):
         self.assertEqual(first.id, second.id)
         # The idempotency path returns before acquire, so counter should be at 0
         # (the first call acquires then releases; the second never acquires)
-        self.assertEqual(redis.get("flashsale:reserve:admission:42"), 0)
+        self.assertIn(redis.get("flashsale:reserve:admission:42"), (None, 0))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,92 @@
+# Redis Reserve Admission Control — Counter Underflow Repair
+# Render: d2 --theme=0 --pad=32 docs/adrs/diagrams/0005-redis-admission-underflow-repair.d2 docs/adrs/diagrams/0005-redis-admission-underflow-repair.svg
+
+direction: right
+
+before: {
+  label: "Before: bare DECR can create negative counters"
+  shape: sequence_diagram
+
+  client: Client
+  order: "order-service API"
+  gate: "Redis admission gate"
+  redis: "Upstash Redis"
+
+  client -> order: "1. POST /orders"
+  order -> gate: "2. acquire(42)"
+  gate -> redis: "3. INCR flashsale:reserve:admission:42"
+  redis -> gate: "4. counter=1, EXPIRE 15s"
+  gate -> order: "5. permit acquired"
+  order -> order: "6. reserve inventory + persist order"
+
+  stale_release: {
+    label: "Problematic release path"
+    style.fill: "#FEE2E2"
+    style.stroke: "#DC2626"
+
+    order -> gate: "7. finally: release(42)"
+    gate -> redis: "8. DECR on missing / expired key"
+    redis -> gate: "9. Redis creates counter=-1"
+    gate -> order: "10. inflight state is now invalid"
+  }
+
+  next_request: {
+    label: "Broken follow-up behavior"
+    style.fill: "#FEF3C7"
+    style.stroke: "#D97706"
+
+    client -> order: "11. next POST /orders"
+    order -> gate: "12. acquire(42)"
+    gate -> redis: "13. INCR from negative baseline"
+    redis -> gate: "14. counter stays <= 0 / logs show inflight=-1,-2,-3"
+  }
+}
+
+after: {
+  label: "After: Lua scripts clamp release and repair stale negative state"
+  shape: sequence_diagram
+
+  client: Client
+  order: "order-service API"
+  gate: "Redis admission gate"
+  redis: "Upstash Redis"
+
+  client -> order: "1. POST /orders"
+  order -> gate: "2. acquire(42)"
+
+  acquire_repair: {
+    label: "New acquire_permit.lua guard"
+    style.fill: "#DBEAFE"
+    style.stroke: "#2563EB"
+
+    gate -> redis: "3. GET current counter"
+    redis -> gate: "4. if current < 0, DEL key first"
+    gate -> redis: "5. INCR clean key and EXPIRE on first permit"
+    redis -> gate: "6. counter=1 from a valid baseline"
+  }
+
+  gate -> order: "7. permit acquired"
+  order -> order: "8. reserve inventory + persist order"
+
+  safe_release: {
+    label: "New release_permit.lua guard"
+    style.fill: "#DCFCE7"
+    style.stroke: "#16A34A"
+
+    order -> gate: "9. finally: release(42)"
+    gate -> redis: "10. GET current counter"
+    redis -> gate: "11. if key missing or inflight<=1: DEL / return 0"
+    gate -> order: "12. no negative counter is written"
+  }
+
+  healed_follow_up: {
+    label: "Healthy follow-up behavior"
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+
+    client -> order: "13. next POST /orders"
+    order -> gate: "14. acquire(42)"
+    gate -> redis: "15. INCR from 0 or repaired state"
+    redis -> gate: "16. counter reflects real inflight permits"
+  }
+}

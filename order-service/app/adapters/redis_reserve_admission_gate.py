@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -17,6 +18,13 @@ if TYPE_CHECKING:
     from app.ports.reserve_admission_gate import ReserveAdmissionGate
 
 _KEY_PREFIX = "flashsale:reserve:admission"
+_SCRIPT_DIR = Path(__file__).with_name("lua")
+_ACQUIRE_PERMIT_SCRIPT = (_SCRIPT_DIR / "acquire_permit.lua").read_text(
+    encoding="utf-8"
+)
+_RELEASE_PERMIT_SCRIPT = (_SCRIPT_DIR / "release_permit.lua").read_text(
+    encoding="utf-8"
+)
 
 
 def _key(product_id: int) -> str:
@@ -59,7 +67,7 @@ class RedisReserveAdmissionGate:
         for pid in product_ids:
             t0 = time.perf_counter()
             try:
-                counter = self._redis.incr(_key(pid))
+                counter = self._acquire_counter(pid)
             except RedisError as exc:
                 self._metrics.record_error(pid, "redis_incr_error")
                 self._release(acquired)
@@ -68,18 +76,12 @@ class RedisReserveAdmissionGate:
                     detail="admission control unavailable",
                 ) from exc
 
-            if counter == 1:
-                try:
-                    self._redis.expire(_key(pid), self._permit_ttl)
-                except RedisError:
-                    pass  # best-effort; leaked permit auto-recovered by remaining TTL
-
             wait_ms = (time.perf_counter() - t0) * 1000
             inflight = int(counter)
 
             if inflight > self._max_inflight:
                 try:
-                    self._redis.decr(_key(pid))
+                    self._release_counter(pid)
                 except RedisError:
                     pass
                 self._metrics.record_rejected(pid, inflight, self._max_inflight)
@@ -105,11 +107,30 @@ class RedisReserveAdmissionGate:
     def release(self, product_ids: list[int]) -> None:
         self._release(product_ids)
 
+    def _acquire_counter(self, product_id: int) -> int:
+        return int(
+            self._redis.eval(
+                _ACQUIRE_PERMIT_SCRIPT,
+                1,
+                _key(product_id),
+                self._permit_ttl,
+            )
+        )
+
+    def _release_counter(self, product_id: int) -> int:
+        return int(
+            self._redis.eval(
+                _RELEASE_PERMIT_SCRIPT,
+                1,
+                _key(product_id),
+            )
+        )
+
     def _release(self, product_ids: list[int]) -> None:
         for pid in product_ids:
             try:
-                self._redis.decr(_key(pid))
+                inflight = self._release_counter(pid)
             except RedisError:
                 self._metrics.record_error(pid, "redis_decr_error")
             else:
-                self._metrics.record_inflight(pid, 0)
+                self._metrics.record_inflight(pid, inflight)

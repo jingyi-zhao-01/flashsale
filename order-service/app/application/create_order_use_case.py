@@ -49,6 +49,7 @@ class CreateOrderUseCase:
         total_start = time.perf_counter()
         user_validate_ms = 0.0
         reserve_ms = 0.0
+        admission_release_ms = 0.0
         order: Order | None = None
         result = "unknown"
         if not command.items:
@@ -145,14 +146,40 @@ class CreateOrderUseCase:
             ) from exc
         finally:
             if admission_held:
-                self._admission.release(admission_held)
+                with start_span(
+                    "order-service",
+                    "release admission permit",
+                    attributes={
+                        "flashsale.product_ids": ",".join(
+                            str(product_id) for product_id in admission_held
+                        ),
+                        "flashsale.admission.release_count": len(admission_held),
+                    },
+                ) as span:
+                    release_start = time.perf_counter()
+                    try:
+                        self._admission.release(admission_held)
+                    except Exception as exc:
+                        span.record_exception(exc)
+                        span.set_attribute("error", True)
+                        raise
+                    finally:
+                        admission_release_ms = (
+                            time.perf_counter() - release_start
+                        ) * 1000
+                        span.set_attribute(
+                            "flashsale.admission.release_ms",
+                            admission_release_ms,
+                        )
             total_order_ms = (time.perf_counter() - total_start) * 1000
             order_logger.info(
                 "event=order_service_create_order_timing order_id=%s idempotency_hit=false "
-                "user_validate_ms=%.2f reserve_ms=%.2f total_order_ms=%.2f result=%s",
+                "user_validate_ms=%.2f reserve_ms=%.2f admission_release_ms=%.2f "
+                "total_order_ms=%.2f result=%s",
                 order.id if order is not None else None,
                 user_validate_ms,
                 reserve_ms,
+                admission_release_ms,
                 total_order_ms,
                 result,
             )
