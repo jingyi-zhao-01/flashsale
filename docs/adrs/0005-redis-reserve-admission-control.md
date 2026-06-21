@@ -71,6 +71,26 @@ hung processes.
 3. If counter > max_inflight: `DECR` counter, reject with 429
 4. On success (finally): `DECR` counter
 
+### 2026-06-20 repair: prevent negative counters on release
+
+Load-test traces and structured logs later exposed a gap in the original algorithm:
+real Redis semantics do **not** clamp `DECR` on a missing key to `0`.
+If the permit key had already expired, or had been cleared before the `finally`
+release ran, a bare `DECR` would recreate the key as `-1`. Repeated releases
+or follow-up requests could then drift the admission counter to `-2`, `-3`, and
+other invalid inflight states.
+
+The fix keeps the Redis admission model, but hardens both edges with Lua scripts:
+
+1. `release_permit.lua` returns `0` when the key is missing or already non-positive,
+   instead of writing a negative counter
+2. `acquire_permit.lua` repairs any stale negative key by deleting it before `INCR`
+3. the Python gate wrapper now calls these scripts atomically instead of issuing
+   raw `INCR` / `DECR` commands from the client
+
+This preserves the original intent of ADR 0005 while repairing an implementation
+detail that only showed up under real Upstash/Redis behavior.
+
 ### Rejection behavior
 
 When a product is over its admission limit, `order-service` returns:
@@ -147,6 +167,8 @@ Trade-offs:
 - This does not increase theoretical write throughput for a single hot product;
   it is a stability improvement, not a scaling model
 - Multi-item orders acquire permits for all product_ids atomically
+- Release is now safe against expired or already-cleared permit keys
+- Follow-up acquires self-heal stale negative counters instead of inheriting bad state
 
 ## Validation plan
 
@@ -163,6 +185,8 @@ Run the same load test before and after the change and compare:
 
 - `application/flashsale/order-service/app/ports/reserve_admission_gate.py`
 - `application/flashsale/order-service/app/adapters/redis_reserve_admission_gate.py`
+- `application/flashsale/order-service/app/adapters/lua/acquire_permit.lua`
+- `application/flashsale/order-service/app/adapters/lua/release_permit.lua`
 - `application/flashsale/order-service/app/adapters/reserve_admission_metrics.py`
 - `application/flashsale/order-service/app/application/create_order_use_case.py`
 - `application/flashsale/order-service/app/application/order_runtime.py`
@@ -179,3 +203,14 @@ Run the same load test before and after the change and compare:
 ### Sequence Diagram
 
 ![Redis admission gate sequence](diagrams/0005-redis-admission-sequence.svg)
+
+### Counter Underflow Repair
+
+This diagram shows the exact bug that appeared in production-like traffic and
+what the Lua-script repair changed.
+
+- Red box: the old release path could `DECR` a missing key and create `-1`
+- Green box: the new release script returns `0` instead of underflowing
+- Blue box: the new acquire script repairs any stale negative key before `INCR`
+
+![Redis admission counter underflow repair](diagrams/0005-redis-admission-underflow-repair.svg)
