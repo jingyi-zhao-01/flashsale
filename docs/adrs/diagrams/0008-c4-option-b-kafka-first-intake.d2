@@ -1,0 +1,135 @@
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    theme-id: 300
+  }
+}
+
+classes: {
+  plane: {
+    style: {
+      stroke: "#7d8da1"
+      fill: "#f8fafc"
+      border-radius: 12
+    }
+  }
+  service: {
+    shape: rectangle
+    style: {
+      fill: "#dbeafe"
+      stroke: "#2563eb"
+      border-radius: 8
+    }
+  }
+  worker: {
+    shape: rectangle
+    style: {
+      fill: "#dcfce7"
+      stroke: "#16a34a"
+      border-radius: 8
+    }
+  }
+  control: {
+    shape: rectangle
+    style: {
+      fill: "#ffedd5"
+      stroke: "#ea580c"
+      border-radius: 8
+    }
+  }
+  queue: {
+    shape: queue
+    style: {
+      fill: "#ede9fe"
+      stroke: "#7c3aed"
+    }
+  }
+  db: {
+    shape: cylinder
+    style: {
+      fill: "#fef3c7"
+      stroke: "#d97706"
+    }
+  }
+}
+
+title: {
+  label: "Option B: Kafka-first Intake"
+  shape: text
+  style: {
+    bold: true
+    font-size: 28
+  }
+}
+
+client: {
+  class: plane
+  label: "Client"
+  app: {
+    class: service
+    label: "Customer / Load Generator\nPOST /orders"
+  }
+}
+
+runtime: {
+  class: plane
+  label: "Flashsale runtime"
+
+  intake_api: {
+    class: service
+    label: "intake API\naccept command\nreturn pending"
+  }
+
+  redis: {
+    class: control
+    label: "Redis pending cache\noptional status view"
+  }
+
+  kafka: {
+    class: queue
+    label: "Kafka create-order command topic\nfirst durable intake log"
+  }
+
+  intake_worker: {
+    class: worker
+    label: "intake worker\nconsume command\ncreate order"
+  }
+
+  user_api: {
+    class: service
+    label: "user-service\nvalidate user"
+  }
+
+  product_api: {
+    class: service
+    label: "product-service\nreserve / confirm / cancel"
+  }
+
+  postgres: {
+    class: db
+    label: "Postgres\nidempotent order write\nfinal order state"
+  }
+
+  terminal_worker: {
+    class: worker
+    label: "order-worker\nterminalization consumer"
+  }
+}
+
+note: {
+  class: plane
+  label: "Guarantee:\nif command is durably accepted,\nworker can eventually create the order"
+}
+
+client.app -> runtime.intake_api: "submit create-order command"
+runtime.intake_api -> runtime.kafka: "publish command"
+runtime.intake_api -> runtime.redis: "optional pending status"
+runtime.kafka -> runtime.intake_worker: "consume create-order"
+runtime.intake_worker -> runtime.user_api: "validate user"
+runtime.intake_worker -> runtime.product_api: "reserve inventory"
+runtime.intake_worker -> runtime.postgres: "idempotent order write"
+runtime.intake_worker -> runtime.redis: "update result"
+runtime.postgres -> runtime.terminal_worker: "order ready for follow-up"
+runtime.postgres -> note: "final durable order state"

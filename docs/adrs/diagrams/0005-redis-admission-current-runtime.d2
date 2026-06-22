@@ -1,0 +1,108 @@
+# Redis Reserve Admission Control — Current Runtime
+# Render: d2 --theme=0 --pad=32 docs/adrs/diagrams/0005-redis-admission-current-runtime.d2 docs/adrs/diagrams/0005-redis-admission-current-runtime.svg
+
+direction: down
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    sketch: false
+    theme-id: 0
+  }
+}
+
+client: Client {
+  shape: person
+  style.fill: "#e0e7ff"
+  style.stroke: "#4f46e5"
+}
+
+order-api: "order-service\nPOST /orders" {
+  style.fill: "#dbeafe"
+  style.stroke: "#2563eb"
+}
+
+orders: "orders table\nPostgreSQL" {
+  shape: cylinder
+  style.fill: "#dbeafe"
+  style.stroke: "#2563eb"
+}
+
+redis-gate: "Redis Admission Gate\nLua acquire/release wrapper" {
+  style.fill: "#FEF2F2"
+  style.stroke: "#DC2626"
+}
+
+redis: "Redis\n(Upstash)" {
+  shape: cylinder
+  style.fill: "#fee2e2"
+  style.stroke: "#b91c1c"
+}
+
+product-service: "product-service\nPOST /reserve" {
+  style.fill: "#dcfce7"
+  style.stroke: "#16a34a"
+}
+
+idempotency-replay: {
+  label: "Idempotency replay bypass"
+  style.fill: "#EFF6FF"
+  style.stroke: "#2563EB"
+
+  client -> order-api: "1. POST /orders {idempotency_key=k1}"
+  order-api -> orders: "2. SELECT by idempotency_key=k1"
+  orders -> order-api: "3. existing order found"
+  order-api -> client: "4. return existing order\n(no permit acquired)"
+}
+
+allowed-path: {
+  label: "Allowed path"
+  style.fill: "#DCFCE7"
+  style.stroke: "#16A34A"
+
+  client -> order-api: "5. POST /orders {new idempotency_key}"
+  order-api -> orders: "6. SELECT by idempotency_key"
+  orders -> order-api: "7. miss"
+  order-api -> order-api: "8. validate user"
+  order-api -> redis-gate: "9. acquire(product_id)"
+  redis-gate -> redis: "10. eval acquire_permit.lua"
+  redis -> redis-gate: "11. repair negative if needed,\nINCR, EXPIRE on counter==1"
+  redis-gate -> order-api: "12. inflight <= max_inflight"
+  order-api -> product-service: "13. reserve inventory"
+  product-service -> order-api: "14. reservation_id"
+  order-api -> orders: "15. INSERT order"
+  orders -> order-api: "16. OK"
+  order-api -> client: "17. 201 Created"
+  order-api -> redis-gate: "18. finally release(product_id)"
+  redis-gate -> redis: "19. eval release_permit.lua"
+  redis -> redis-gate: "20. DECR or DEL -> inflight=0"
+}
+
+reject-path: {
+  label: "Reject path"
+  style.fill: "#FEF3C7"
+  style.stroke: "#D97706"
+
+  client -> order-api: "21. another concurrent POST /orders"
+  order-api -> redis-gate: "22. acquire(product_id)"
+  redis-gate -> redis: "23. eval acquire_permit.lua"
+  redis -> redis-gate: "24. counter > max_inflight"
+  redis-gate -> redis: "25. eval release_permit.lua for rejected product"
+  redis-gate -> order-api: "26. reject"
+  order-api -> client: "27. 429 product reservation busy"
+}
+
+redis-error-path: {
+  label: "Redis runtime failure"
+  style.fill: "#FEE2E2"
+  style.stroke: "#DC2626"
+
+  client -> order-api: "28. POST /orders"
+  order-api -> redis-gate: "29. acquire(product_id)"
+  redis-gate -> redis: "30. eval acquire_permit.lua"
+  redis ->x redis-gate: "31. RedisError"
+  redis-gate -> order-api: "32. acquisition failed"
+  order-api -> client: "33. 503 admission control unavailable"
+}
+
+order-api.note: "Current implementation notes:\n• Redis gate is enabled only when REDIS_URL is configured\n• NoOpReserveAdmissionGate is used when REDIS_URL is absent\n• Worker confirm/cancel path does not hold the permit\n• Multi-item requests release already-acquired permits if a later product is rejected"

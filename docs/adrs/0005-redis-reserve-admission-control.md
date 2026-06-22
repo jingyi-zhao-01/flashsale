@@ -28,10 +28,11 @@ We will add a **Redis-based product-level admission-control middleware** before
 `reserveStock()` in `order-service`. The gate limits how many concurrent reserve
 attempts can be in flight for each `product_id`.
 
-### Request flow (post-change)
+### Current runtime behavior
 
 ```
 POST /orders
+  → early idempotency replay check
   → validate user
   → for each product_id: REDIS ADMISSION GATE (acquire permit)
   → reserve(product_id, quantity) via product-service
@@ -43,6 +44,17 @@ POST /orders
 The **confirm/cancel terminalization path** (worker, payment webhook) does **not**
 hold the product reserve permit. The permit is held only during the synchronous
 `POST /orders` reserve window.
+
+Important current details from the implementation:
+
+- if `REDIS_URL` is not configured, the service uses `NoOpReserveAdmissionGate`
+  and skips Redis admission entirely
+- if `idempotency_key` hits an existing order, replay returns **before**
+  admission acquire and does not consume a permit
+- if Redis is configured but the gate fails during request processing,
+  the request returns `503 admission control unavailable`
+- if one product in a multi-item order is rejected, the gate releases any
+  already-acquired permits for earlier product ids in the same request
 
 ### Redis key format
 
@@ -66,10 +78,18 @@ hung processes.
 
 ### Admission algorithm (per product_id)
 
-1. `INCR flashsale:reserve:admission:{product_id}`
-2. If counter == 1: `EXPIRE flashsale:reserve:admission:{product_id} {ttl}`
-3. If counter > max_inflight: `DECR` counter, reject with 429
-4. On success (finally): `DECR` counter
+Current implementation is Lua-script based:
+
+1. `acquire(product_id)` calls `acquire_permit.lua`
+2. script repairs any stale negative counter by deleting it
+3. script runs `INCR flashsale:reserve:admission:{product_id}`
+4. if counter == 1: script sets `EXPIRE ... {ttl}`
+5. Python checks the returned counter
+6. if counter > `max_inflight`, Python calls `release_permit.lua`, rejects with 429,
+   and releases any previously acquired permits for the same request
+7. on request exit, `release(product_id)` calls `release_permit.lua`
+8. `release_permit.lua` returns `0` for missing or non-positive keys and deletes
+   the key when the counter would otherwise drop to zero
 
 ### 2026-06-20 repair: prevent negative counters on release
 
@@ -162,8 +182,10 @@ Expected benefits:
 Trade-offs:
 
 - Redis is now a runtime dependency on the critical order path
-- If Redis is unavailable, the gate fails open (requests proceed without
-  admission control) to avoid blocking all orders
+- If `REDIS_URL` is unset, the gate is disabled and the service falls back to
+  `NoOpReserveAdmissionGate`
+- If Redis is configured but unavailable during a request, the current code
+  fails closed with `503 admission control unavailable`
 - This does not increase theoretical write throughput for a single hot product;
   it is a stability improvement, not a scaling model
 - Multi-item orders acquire permits for all product_ids atomically
@@ -203,6 +225,17 @@ Run the same load test before and after the change and compare:
 ### Sequence Diagram
 
 ![Redis admission gate sequence](diagrams/0005-redis-admission-sequence.svg)
+
+### Current Runtime Sequence
+
+This version reflects the code as it exists now, including:
+
+- early idempotency replay bypass
+- Lua-script acquire/release
+- `503` on Redis runtime failure
+- request-scoped rollback of previously acquired permits in multi-item flows
+
+![Redis admission gate current runtime](diagrams/0005-redis-admission-current-runtime.svg)
 
 ### Counter Underflow Repair
 

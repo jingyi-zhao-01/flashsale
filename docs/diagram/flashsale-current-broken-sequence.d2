@@ -1,0 +1,68 @@
+# Flashsale current runtime: broken sequence after outbox removal
+# Render:
+#   d2 --theme=0 --pad=32 docs/diagram/flashsale-current-broken-sequence.d2 docs/diagram/flashsale-current-broken-sequence.svg
+
+direction: down
+
+broken_flow: {
+  label: "Current runtime: DB commit then Kafka publish"
+  shape: sequence_diagram
+
+  client: "Client"
+  order_api: "order-service API"
+  user_api: "user-service"
+  product_api: "product-service"
+  orders: "orders table"
+  redis: "Redis admission"
+  kafka: "Kafka command topic"
+  worker: "order-worker"
+
+  request_path: {
+    label: "request path before the dangerous gap"
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+
+    client -> order_api: "1. POST /orders {idempotency_key=k1}"
+    order_api -> user_api: "2. validate user"
+    user_api -> order_api: "3. ok"
+    order_api -> product_api: "4. reserve inventory"
+    product_api -> order_api: "5. reservation_id=42"
+    order_api -> orders: "6. INSERT pending order"
+    orders -> order_api: "7. commit success"
+    order_api -> redis: "8. check admission permit"
+    redis -> order_api: "9. permit ok"
+  }
+
+  danger_window: {
+    label: "danger window: durable order exists, but durable command does not"
+    style.fill: "#FEE2E2"
+    style.stroke: "#DC2626"
+
+    order_api -> kafka: "10. publish terminalization command(reservation_id=42)"
+    kafka ->x order_api: "11. timeout / broker error after DB commit"
+    order_api -> client: "12. 503 or uncertain result"
+  }
+
+  replay_after_failure: {
+    label: "retry is not real recovery"
+    style.fill: "#FEF3C7"
+    style.stroke: "#D97706"
+
+    client -> order_api: "13. retry same idempotency_key=k1"
+    order_api -> orders: "14. SELECT by idempotency_key=k1"
+    orders -> order_api: "15. existing pending order"
+    order_api -> client: "16. return old order row"
+  }
+
+  consequence: {
+    label: "what gets stuck"
+    style.fill: "#F3E8FF"
+    style.stroke: "#9333EA"
+
+    worker -> kafka: "17. no command to consume"
+    kafka -> worker: "18. nothing delivered"
+    worker -> product_api: "19. confirm / cancel never runs"
+  }
+}
+
+broken_flow.note: "Problem comment:\nWithout an outbox, step 7 and step 10 are two separate durability boundaries.\nIf step 7 succeeds but step 10 fails, the order is already stored, but the async follow-up is lost.\nRetry only replays the existing pending order; it does not recreate the missing command safely."
